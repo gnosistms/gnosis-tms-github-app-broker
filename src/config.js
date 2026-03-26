@@ -26,6 +26,8 @@ export const config = {
   githubAppId: required("GITHUB_APP_ID"),
   githubAppSlug: required("GITHUB_APP_SLUG"),
   githubAppPrivateKey: required("GITHUB_APP_PRIVATE_KEY").replace(/\\n/g, "\n"),
+  githubOauthClientId: required("GITHUB_OAUTH_CLIENT_ID"),
+  githubOauthClientSecret: required("GITHUB_OAUTH_CLIENT_SECRET"),
   brokerStateSecret: required("BROKER_STATE_SECRET"),
   brokerToken: optional("BROKER_TOKEN"),
   allowedDesktopCallbackPrefixes: parseAllowedDesktopPrefixes(

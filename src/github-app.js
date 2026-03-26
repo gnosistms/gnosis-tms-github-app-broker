@@ -33,10 +33,19 @@ export async function githubApi(path, options = {}) {
 
   if (!response.ok) {
     const body = await response.text();
-    throw new Error(`GitHub API ${response.status}: ${body || response.statusText}`);
+    const error = new Error(
+      parseGithubError(response.status, body || response.statusText),
+    );
+    error.githubStatus = response.status;
+    error.githubBody = body;
+    throw error;
   }
 
   return response;
+}
+
+export function parseGithubError(status, body) {
+  return `GitHub API ${status}: ${body}`;
 }
 
 export async function getInstallation(installationId) {
