@@ -270,12 +270,11 @@ export function createApp() {
           brokerSession: request.brokerSession,
           requireAdmin: true,
         });
-        const { createInstallationAccessToken, githubApi } = await import("./github-app.js");
-        const installationToken = await createInstallationAccessToken(installationId);
+        const { githubApi } = await import("./github-app.js");
         const githubResponse = await githubApi(`/orgs/${orgLogin}`, {
           method: "PATCH",
           headers: {
-            Authorization: `Bearer ${installationToken}`,
+            Authorization: `Bearer ${request.brokerSession.accessToken}`,
           },
           body: JSON.stringify({ name }),
         });
