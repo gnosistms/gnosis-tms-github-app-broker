@@ -22,6 +22,7 @@ import {
 } from "./project-repos.js";
 import {
   ensureInstallationAccess,
+  getInstallationAccessDetails,
   listAuthorizedOrganizations,
   listInstallationMembers,
 } from "./authorization.js";
@@ -203,10 +204,9 @@ export function createApp() {
     async (request, response) => {
       try {
         const installationId = Number.parseInt(request.params.installationId, 10);
-        const installation = await ensureInstallationAccess({
+        const installation = await getInstallationAccessDetails({
           installationId,
           brokerSession: request.brokerSession,
-          requireAdmin: false,
         });
         response.json(installation);
       } catch (error) {
@@ -304,6 +304,62 @@ export function createApp() {
           installationId: Number.parseInt(request.params.installationId, 10),
           orgLogin: request.params.orgLogin,
           brokerSession: request.brokerSession,
+        });
+        response.status(204).end();
+      } catch (error) {
+        response.status(400).json({
+          error: error instanceof Error ? error.message : String(error),
+        });
+      }
+    },
+  );
+
+  app.delete(
+    "/api/github-app/installations/:installationId/orgs/:orgLogin",
+    ensureBrokerSession,
+    async (request, response) => {
+      try {
+        const installationId = Number.parseInt(request.params.installationId, 10);
+        const orgLogin = request.params.orgLogin;
+        await ensureInstallationAccess({
+          installationId,
+          brokerSession: request.brokerSession,
+          requireAdmin: true,
+        });
+        const { githubApi } = await import("./github-app.js");
+        await githubApi(`/orgs/${orgLogin}`, {
+          method: "DELETE",
+          headers: {
+            Authorization: `Bearer ${request.brokerSession.accessToken}`,
+          },
+        });
+        response.status(204).end();
+      } catch (error) {
+        response.status(400).json({
+          error: error instanceof Error ? error.message : String(error),
+        });
+      }
+    },
+  );
+
+  app.delete(
+    "/api/github-app/installations/:installationId/orgs/:orgLogin/membership",
+    ensureBrokerSession,
+    async (request, response) => {
+      try {
+        const installationId = Number.parseInt(request.params.installationId, 10);
+        const orgLogin = request.params.orgLogin;
+        await ensureInstallationAccess({
+          installationId,
+          brokerSession: request.brokerSession,
+          requireAdmin: false,
+        });
+        const { githubApi } = await import("./github-app.js");
+        await githubApi(`/user/memberships/orgs/${orgLogin}`, {
+          method: "DELETE",
+          headers: {
+            Authorization: `Bearer ${request.brokerSession.accessToken}`,
+          },
         });
         response.status(204).end();
       } catch (error) {

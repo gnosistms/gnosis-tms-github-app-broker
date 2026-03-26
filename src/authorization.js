@@ -9,12 +9,46 @@ async function loadOrganizationMembership(orgLogin, userAccessToken) {
   return response.json();
 }
 
+export async function getInstallationAccessDetails({
+  installationId,
+  brokerSession,
+}) {
+  const installation = await getInstallation(installationId);
+
+  if (installation.accountType === "User") {
+    const isSelf = installation.accountLogin === brokerSession.user.login;
+    return {
+      ...installation,
+      membershipState: isSelf ? "active" : "inactive",
+      membershipRole: isSelf ? "admin" : "member",
+      canDelete: isSelf,
+      canLeave: false,
+    };
+  }
+
+  const membership = await loadOrganizationMembership(
+    installation.accountLogin,
+    brokerSession.accessToken,
+  );
+
+  return {
+    ...installation,
+    membershipState: membership.state || "unknown",
+    membershipRole: membership.role || "member",
+    canDelete: membership.state === "active" && membership.role === "admin",
+    canLeave: membership.state === "active",
+  };
+}
+
 export async function ensureInstallationAccess({
   installationId,
   brokerSession,
   requireAdmin = false,
 }) {
-  const installation = await getInstallation(installationId);
+  const installation = await getInstallationAccessDetails({
+    installationId,
+    brokerSession,
+  });
 
   if (installation.accountType === "User") {
     if (installation.accountLogin !== brokerSession.user.login) {
@@ -24,16 +58,11 @@ export async function ensureInstallationAccess({
     return installation;
   }
 
-  const membership = await loadOrganizationMembership(
-    installation.accountLogin,
-    brokerSession.accessToken,
-  );
-
-  if (membership.state !== "active") {
+  if (installation.membershipState !== "active") {
     throw new Error(`Your membership in @${installation.accountLogin} is not active.`);
   }
 
-  if (requireAdmin && membership.role !== "admin") {
+  if (requireAdmin && installation.membershipRole !== "admin") {
     throw new Error(`You need admin access in @${installation.accountLogin} for this action.`);
   }
 
