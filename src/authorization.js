@@ -31,9 +31,16 @@ export async function getInstallationAccessDetails({
     installation.accountLogin,
     brokerSession.accessToken,
   );
+  const orgResponse = await githubApi(`/orgs/${installation.accountLogin}`, {
+    headers: {
+      Authorization: `Bearer ${brokerSession.accessToken}`,
+    },
+  });
+  const orgPayload = await orgResponse.json();
 
   return {
     ...installation,
+    description: orgPayload.description || null,
     membershipState: membership.state || "unknown",
     membershipRole: membership.role || "member",
     canDelete: membership.state === "active" && membership.role === "admin",

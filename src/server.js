@@ -270,6 +270,12 @@ export function createApp() {
         const installationId = Number.parseInt(request.params.installationId, 10);
         const orgLogin = request.params.orgLogin;
         const name = String(request.body?.name || "").trim();
+        const hasDescription = Object.prototype.hasOwnProperty.call(request.body || {}, "description");
+        const description = hasDescription
+          ? request.body?.description == null
+            ? null
+            : String(request.body.description)
+          : undefined;
         await ensureInstallationAccess({
           installationId,
           brokerSession: request.brokerSession,
@@ -281,7 +287,10 @@ export function createApp() {
           headers: {
             Authorization: `Bearer ${request.brokerSession.accessToken}`,
           },
-          body: JSON.stringify({ name }),
+          body: JSON.stringify({
+            ...(name ? { name } : {}),
+            ...(description !== undefined ? { description } : {}),
+          }),
         });
         const payload = await githubResponse.json();
         response.json({
