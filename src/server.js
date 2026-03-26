@@ -19,6 +19,7 @@ import {
   markGnosisProjectRepoDeleted,
   permanentlyDeleteGnosisProjectRepo,
   renameGnosisProjectRepo,
+  restoreGnosisProjectRepo,
 } from "./project-repos.js";
 import {
   ensureInstallationAccess,
@@ -59,6 +60,7 @@ export function createApp() {
         buildGithubOauthStartUrl(request, desktopRedirectUri, desktopState),
         "Redirecting To GitHub",
         "Gnosis TMS is opening GitHub so you can authorize the app and continue setup.",
+        "Opening GitHub now...",
       );
     } catch (error) {
       response.status(400).json({
@@ -97,6 +99,7 @@ export function createApp() {
         redirectUrl.toString(),
         "Returning To Gnosis TMS",
         "GitHub authorization is complete. Gnosis TMS is opening again so you can continue.",
+        "Reopening Gnosis TMS...",
       );
     } catch (error) {
       response.status(400).send(error instanceof Error ? error.message : String(error));
@@ -154,6 +157,7 @@ export function createApp() {
         installUrl.toString(),
         "Redirecting To GitHub",
         "Gnosis TMS is opening GitHub so you can install or configure the GitHub App for your organization.",
+        "Opening GitHub now...",
       );
     } catch (error) {
       response.status(400).json({
@@ -188,6 +192,7 @@ export function createApp() {
         redirectUrl.toString(),
         "Returning To Gnosis TMS",
         "GitHub App setup is complete. Gnosis TMS is opening again so you can continue.",
+        "Reopening Gnosis TMS...",
       );
 
       console.log(
@@ -445,6 +450,25 @@ export function createApp() {
     },
   );
 
+  app.patch(
+    "/api/github-app/gnosis-projects/restore-marker",
+    ensureBrokerSession,
+    express.json(),
+    async (request, response) => {
+      try {
+        await restoreGnosisProjectRepo({
+          ...(request.body || {}),
+          brokerSession: request.brokerSession,
+        });
+        response.status(204).end();
+      } catch (error) {
+        response.status(400).json({
+          error: error instanceof Error ? error.message : String(error),
+        });
+      }
+    },
+  );
+
   app.delete(
     "/api/github-app/gnosis-projects",
     ensureBrokerSession,
@@ -467,7 +491,7 @@ export function createApp() {
   return app;
 }
 
-function renderRedirectPage(response, targetUrl, title, message) {
+function renderRedirectPage(response, targetUrl, title, message, statusText) {
   const safeTargetUrl = JSON.stringify(targetUrl);
   const html = `<!doctype html>
 <html lang="en">
@@ -563,7 +587,7 @@ function renderRedirectPage(response, targetUrl, title, message) {
       <p class="eyebrow">Gnosis TMS</p>
       <h1>${escapeHtml(title)}</h1>
       <p>${escapeHtml(message)}</p>
-      <div class="status"><span class="dot"></span>Opening GitHub now...</div>
+      <div class="status"><span class="dot"></span>${escapeHtml(statusText)}</div>
     </main>
     <script>
       window.setTimeout(() => {

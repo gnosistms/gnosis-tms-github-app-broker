@@ -22,6 +22,7 @@ export async function getInstallationAccessDetails({
       membershipState: isSelf ? "active" : "inactive",
       membershipRole: isSelf ? "admin" : "member",
       canDelete: isSelf,
+      canManageProjects: isSelf,
       canLeave: false,
     };
   }
@@ -36,6 +37,7 @@ export async function getInstallationAccessDetails({
     membershipState: membership.state || "unknown",
     membershipRole: membership.role || "member",
     canDelete: membership.state === "active" && membership.role === "admin",
+    canManageProjects: membership.state === "active" && membership.role === "admin",
     canLeave: membership.state === "active",
   };
 }

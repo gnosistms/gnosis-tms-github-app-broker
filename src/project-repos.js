@@ -334,6 +334,28 @@ export async function markGnosisProjectRepoDeleted({
   });
 }
 
+export async function restoreGnosisProjectRepo({
+  installationId,
+  orgLogin,
+  repoName,
+  brokerSession,
+}) {
+  await ensureInstallationAccess({ installationId, brokerSession, requireAdmin: true });
+  const installationToken = await createInstallationAccessToken(installationId);
+  await githubApi(`/repos/${orgLogin}/${repoName}/properties/values`, {
+    method: "PATCH",
+    headers: authHeaders(installationToken),
+    body: JSON.stringify({
+      properties: [
+        {
+          property_name: GNOSIS_TMS_REPO_STATUS_PROPERTY_NAME,
+          value: GNOSIS_TMS_REPO_STATUS_ACTIVE,
+        },
+      ],
+    }),
+  });
+}
+
 export async function renameGnosisProjectRepo({
   installationId,
   fullName,
