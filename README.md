@@ -28,6 +28,7 @@ The GitHub App installation flow still works through:
 
 ## Required environment variables
 
+- `PUBLIC_BASE_URL`
 - `GITHUB_APP_ID`
 - `GITHUB_APP_SLUG`
 - `GITHUB_APP_PRIVATE_KEY`
@@ -60,6 +61,10 @@ curl http://localhost:3000/health
 Create a GitHub OAuth app for broker sign-in and set its callback URL to:
 
 `https://YOUR_DIGITALOCEAN_DOMAIN/auth/github/callback`
+
+Set `PUBLIC_BASE_URL` to the same broker origin, for example:
+
+`https://YOUR_DIGITALOCEAN_DOMAIN`
 
 For local development, if you expose the broker locally, the callback should point at your local
 broker host instead.

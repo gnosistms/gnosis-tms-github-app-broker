@@ -23,6 +23,7 @@ function parseAllowedDesktopPrefixes(value) {
 
 export const config = {
   port: Number.parseInt(optional("PORT", "3000"), 10),
+  publicBaseUrl: required("PUBLIC_BASE_URL"),
   githubAppId: required("GITHUB_APP_ID"),
   githubAppSlug: required("GITHUB_APP_SLUG"),
   githubAppPrivateKey: required("GITHUB_APP_PRIVATE_KEY").replace(/\\n/g, "\n"),

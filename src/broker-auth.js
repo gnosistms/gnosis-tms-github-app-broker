@@ -3,11 +3,11 @@ import { createBrokerSession, destroyBrokerSession, getBrokerSession } from "./b
 import { decodeInstallState, encodeInstallState } from "./install-state.js";
 import { ensureAllowedDesktopCallback } from "./security.js";
 
-function githubOauthCallbackUrl(request) {
-  return new URL("/auth/github/callback", `${request.protocol}://${request.get("host")}`).toString();
+function githubOauthCallbackUrl() {
+  return new URL("/auth/github/callback", config.publicBaseUrl).toString();
 }
 
-export function buildGithubOauthStartUrl(request, desktopRedirectUri, desktopState) {
+export function buildGithubOauthStartUrl(_request, desktopRedirectUri, desktopState) {
   const state = encodeInstallState({
     desktopRedirectUri,
     desktopState,
@@ -16,13 +16,13 @@ export function buildGithubOauthStartUrl(request, desktopRedirectUri, desktopSta
 
   const url = new URL("https://github.com/login/oauth/authorize");
   url.searchParams.set("client_id", config.githubOauthClientId);
-  url.searchParams.set("redirect_uri", githubOauthCallbackUrl(request));
+  url.searchParams.set("redirect_uri", githubOauthCallbackUrl());
   url.searchParams.set("scope", "read:org");
   url.searchParams.set("state", state);
   return url.toString();
 }
 
-export async function exchangeGithubOauthCode(request, code) {
+export async function exchangeGithubOauthCode(_request, code) {
   const response = await fetch("https://github.com/login/oauth/access_token", {
     method: "POST",
     headers: {
@@ -34,7 +34,7 @@ export async function exchangeGithubOauthCode(request, code) {
       client_id: config.githubOauthClientId,
       client_secret: config.githubOauthClientSecret,
       code,
-      redirect_uri: githubOauthCallbackUrl(request),
+      redirect_uri: githubOauthCallbackUrl(),
     }),
   });
 
