@@ -32,6 +32,7 @@ export function createApp() {
   const app = express();
 
   app.disable("x-powered-by");
+  app.set("trust proxy", true);
 
   app.get("/health", (_request, response) => {
     response.json({
