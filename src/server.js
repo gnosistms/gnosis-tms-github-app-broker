@@ -60,6 +60,24 @@ export function createApp() {
     }
   });
 
+  app.get("/debug/oauth/start", (request, response) => {
+    try {
+      const desktopState = String(request.query.state || "debug-state").trim() || "debug-state";
+      const desktopRedirectUri = validateDesktopRedirectUri(
+        String(request.query.desktop_redirect_uri || "http://127.0.0.1:45873/broker/auth/callback").trim(),
+      );
+
+      response.json({
+        oauthStartUrl: buildGithubOauthStartUrl(request, desktopRedirectUri, desktopState),
+        desktopRedirectUri,
+      });
+    } catch (error) {
+      response.status(400).json({
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+  });
+
   app.get("/auth/github/callback", async (request, response) => {
     try {
       const code = String(request.query.code || "");
