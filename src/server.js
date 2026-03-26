@@ -91,7 +91,12 @@ export function createApp() {
         redirectUrl.searchParams.set("avatar_url", user.avatarUrl);
       }
 
-      response.redirect(302, redirectUrl.toString());
+      renderRedirectPage(
+        response,
+        redirectUrl.toString(),
+        "Returning To Gnosis TMS",
+        "GitHub authorization is complete. Gnosis TMS is opening again so you can continue.",
+      );
     } catch (error) {
       response.status(400).send(error instanceof Error ? error.message : String(error));
     }
@@ -177,7 +182,12 @@ export function createApp() {
         redirectUrl.searchParams.set("setup_action", setupAction);
       }
 
-      response.redirect(302, redirectUrl.toString());
+      renderRedirectPage(
+        response,
+        redirectUrl.toString(),
+        "Returning To Gnosis TMS",
+        "GitHub App setup is complete. Gnosis TMS is opening again so you can continue.",
+      );
 
       console.log(
         `Forwarded installation ${installation.installationId} for ${installation.accountLogin} to desktop callback.`,
