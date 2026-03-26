@@ -2,18 +2,19 @@
 
 Small Node/Express broker for the Gnosis TMS desktop app.
 
-This service uses two GitHub auth modes together:
+This service uses the GitHub App for both user authorization and installation access:
 
-- GitHub OAuth authenticates the human user to the broker
-- GitHub App authentication lets the broker act on installed orgs and repos
+- GitHub App user authorization authenticates the human user to the broker
+- GitHub App installation authentication lets the broker act on installed orgs and repos
 
 That means the desktop app never ships the GitHub App private key, while the broker can still
-enforce "which signed-in user is allowed to operate on which installation."
+enforce "which signed-in user is allowed to operate on which installation" without a separate
+OAuth app registration.
 
 ## Flow
 
 1. The desktop app opens `GET /auth/github/start` in the user's browser.
-2. The broker sends the user through GitHub OAuth.
+2. The broker sends the user through the GitHub App user authorization flow.
 3. GitHub redirects back to the broker at `/auth/github/callback`.
 4. The broker creates a broker session and redirects back to the desktop callback URL.
 5. The desktop app stores the broker session token.
@@ -31,9 +32,9 @@ The GitHub App installation flow still works through:
 - `PUBLIC_BASE_URL`
 - `GITHUB_APP_ID`
 - `GITHUB_APP_SLUG`
+- `GITHUB_APP_CLIENT_ID`
+- `GITHUB_APP_CLIENT_SECRET`
 - `GITHUB_APP_PRIVATE_KEY`
-- `GITHUB_OAUTH_CLIENT_ID`
-- `GITHUB_OAUTH_CLIENT_SECRET`
 - `BROKER_STATE_SECRET`
 
 ## Optional environment variables
@@ -56,9 +57,9 @@ Health check:
 curl http://localhost:3000/health
 ```
 
-## GitHub OAuth app settings
+## GitHub App user authorization settings
 
-Create a GitHub OAuth app for broker sign-in and set its callback URL to:
+In your GitHub App settings, configure a user authorization callback URL of:
 
 `https://YOUR_DIGITALOCEAN_DOMAIN/auth/github/callback`
 
@@ -66,11 +67,10 @@ Set `PUBLIC_BASE_URL` to the same broker origin, for example:
 
 `https://YOUR_DIGITALOCEAN_DOMAIN`
 
-For local development, if you expose the broker locally, the callback should point at your local
-broker host instead.
+Use the GitHub App's client ID and client secret in the broker environment.
 
-The broker currently requests the `read:org` scope so it can verify which organizations the signed-in
-user belongs to and whether they have admin rights where required.
+For local development, if you expose the broker locally, add the local callback URL to the GitHub
+App's callback URLs and change `PUBLIC_BASE_URL` accordingly.
 
 ## GitHub App settings
 
@@ -111,7 +111,7 @@ Deploy as a Node app and set the same environment variables in DigitalOcean App 
 
 Recommended notes:
 
-- store `GITHUB_APP_PRIVATE_KEY`, `GITHUB_OAUTH_CLIENT_SECRET`, and `BROKER_STATE_SECRET` as encrypted
+- store `GITHUB_APP_PRIVATE_KEY`, `GITHUB_APP_CLIENT_SECRET`, and `BROKER_STATE_SECRET` as encrypted
   runtime secrets
 - `BROKER_TOKEN` is no longer the primary auth mechanism for desktop API access
 - after changing env vars, redeploy the app

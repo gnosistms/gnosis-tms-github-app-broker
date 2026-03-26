@@ -15,9 +15,8 @@ export function buildGithubOauthStartUrl(_request, desktopRedirectUri, desktopSt
   });
 
   const url = new URL("https://github.com/login/oauth/authorize");
-  url.searchParams.set("client_id", config.githubOauthClientId);
+  url.searchParams.set("client_id", config.githubAppClientId);
   url.searchParams.set("redirect_uri", githubOauthCallbackUrl());
-  url.searchParams.set("scope", "read:org");
   url.searchParams.set("state", state);
   return url.toString();
 }
@@ -31,8 +30,8 @@ export async function exchangeGithubOauthCode(_request, code) {
       "User-Agent": "gnosis-tms-github-app-broker",
     },
     body: JSON.stringify({
-      client_id: config.githubOauthClientId,
-      client_secret: config.githubOauthClientSecret,
+      client_id: config.githubAppClientId,
+      client_secret: config.githubAppClientSecret,
       code,
       redirect_uri: githubOauthCallbackUrl(),
     }),
