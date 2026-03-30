@@ -40,6 +40,7 @@ export async function getInstallationAccessDetails({
 
   return {
     ...installation,
+    accountName: orgPayload.name || null,
     description: orgPayload.description || null,
     membershipState: membership.state || "unknown",
     membershipRole: membership.role || "member",
