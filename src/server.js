@@ -24,8 +24,10 @@ import {
 import {
   ensureInstallationAccess,
   getInstallationAccessDetails,
+  inviteUserToOrganizationForInstallation,
   listAuthorizedOrganizations,
   listInstallationMembers,
+  searchGithubUsersForInstallation,
 } from "./authorization.js";
 import { decodeInstallState, encodeInstallState } from "./install-state.js";
 import { ensureAllowedDesktopCallback, ensureBrokerSession } from "./security.js";
@@ -261,6 +263,24 @@ export function createApp() {
     },
   );
 
+  app.get(
+    "/api/github-app/installations/:installationId/user-search",
+    ensureBrokerSession,
+    async (request, response) => {
+      try {
+        const installationId = Number.parseInt(request.params.installationId, 10);
+        const query = String(request.query.q || "").trim();
+        response.json(
+          await searchGithubUsersForInstallation(installationId, query, request.brokerSession),
+        );
+      } catch (error) {
+        response.status(400).json({
+          error: error instanceof Error ? error.message : String(error),
+        });
+      }
+    },
+  );
+
   app.patch(
     "/api/github-app/installations/:installationId/orgs/:orgLogin",
     ensureBrokerSession,
@@ -301,6 +321,33 @@ export function createApp() {
           avatarUrl: payload.avatar_url || null,
           htmlUrl: payload.html_url || null,
         });
+      } catch (error) {
+        response.status(400).json({
+          error: error instanceof Error ? error.message : String(error),
+        });
+      }
+    },
+  );
+
+  app.post(
+    "/api/github-app/installations/:installationId/orgs/:orgLogin/invitations",
+    ensureBrokerSession,
+    express.json(),
+    async (request, response) => {
+      try {
+        const installationId = Number.parseInt(request.params.installationId, 10);
+        const orgLogin = request.params.orgLogin;
+        response.status(201).json(
+          await inviteUserToOrganizationForInstallation({
+            installationId,
+            orgLogin,
+            inviteeId:
+              request.body?.inviteeId == null ? null : Number.parseInt(String(request.body.inviteeId), 10),
+            inviteeLogin: request.body?.inviteeLogin ?? null,
+            inviteeEmail: request.body?.inviteeEmail ?? null,
+            brokerSession: request.brokerSession,
+          }),
+        );
       } catch (error) {
         response.status(400).json({
           error: error instanceof Error ? error.message : String(error),

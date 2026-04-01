@@ -154,3 +154,99 @@ export async function listInstallationMembers(installationId, orgLogin, brokerSe
     htmlUrl: member.html_url || null,
   }));
 }
+
+export async function searchGithubUsersForInstallation(installationId, query, brokerSession) {
+  await ensureInstallationAccess({
+    installationId,
+    brokerSession,
+    requireAdmin: true,
+  });
+
+  const normalizedQuery = String(query || "").trim();
+  if (normalizedQuery.length < 2) {
+    return [];
+  }
+
+  const searchResponse = await githubApi(
+    `/search/users?q=${encodeURIComponent(normalizedQuery)}+in:login+in:fullname+type:user&per_page=6`,
+    {
+      headers: {
+        Authorization: `Bearer ${brokerSession.accessToken}`,
+      },
+    },
+  );
+  const searchPayload = await searchResponse.json();
+  const items = Array.isArray(searchPayload.items) ? searchPayload.items : [];
+
+  const details = await Promise.all(
+    items.slice(0, 6).map(async (item) => {
+      const userResponse = await githubApi(`/users/${item.login}`, {
+        headers: {
+          Authorization: `Bearer ${brokerSession.accessToken}`,
+        },
+      });
+      const userPayload = await userResponse.json();
+      return {
+        id: item.id,
+        login: item.login,
+        name: userPayload.name || null,
+        avatarUrl: item.avatar_url || null,
+        htmlUrl: item.html_url || null,
+      };
+    }),
+  );
+
+  return details;
+}
+
+export async function inviteUserToOrganizationForInstallation({
+  installationId,
+  orgLogin,
+  inviteeId,
+  inviteeLogin,
+  inviteeEmail,
+  brokerSession,
+}) {
+  await ensureInstallationAccess({
+    installationId,
+    brokerSession,
+    requireAdmin: true,
+  });
+
+  let resolvedInviteeId = inviteeId ?? null;
+  const normalizedLogin = String(inviteeLogin || "").trim();
+  const normalizedEmail = String(inviteeEmail || "").trim();
+
+  if (!resolvedInviteeId && normalizedLogin) {
+    const userResponse = await githubApi(`/users/${normalizedLogin}`, {
+      headers: {
+        Authorization: `Bearer ${brokerSession.accessToken}`,
+      },
+    });
+    const userPayload = await userResponse.json();
+    resolvedInviteeId = userPayload.id || null;
+  }
+
+  if (!resolvedInviteeId && !normalizedEmail) {
+    throw new Error("Provide a GitHub username or email to invite.");
+  }
+
+  const response = await githubApi(`/orgs/${orgLogin}/invitations`, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${brokerSession.accessToken}`,
+    },
+    body: JSON.stringify({
+      ...(resolvedInviteeId ? { invitee_id: resolvedInviteeId } : {}),
+      ...(!resolvedInviteeId && normalizedEmail ? { email: normalizedEmail } : {}),
+      role: "direct_member",
+    }),
+  });
+  const payload = await response.json();
+
+  return {
+    id: payload.id,
+    login: payload.login || normalizedLogin || null,
+    email: payload.email || normalizedEmail || null,
+  };
+}
