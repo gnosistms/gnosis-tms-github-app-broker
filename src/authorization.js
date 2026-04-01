@@ -167,8 +167,9 @@ export async function searchGithubUsersForInstallation(installationId, query, br
     return [];
   }
 
+  const normalizedSearch = normalizedQuery.toLowerCase();
   const searchResponse = await githubApi(
-    `/search/users?q=${encodeURIComponent(normalizedQuery)}+type:user&per_page=6`,
+    `/search/users?q=${encodeURIComponent(normalizedQuery)}+type:user&per_page=30`,
     {
       headers: {
         Authorization: `Bearer ${brokerSession.accessToken}`,
@@ -179,24 +180,41 @@ export async function searchGithubUsersForInstallation(installationId, query, br
   const items = Array.isArray(searchPayload.items) ? searchPayload.items : [];
 
   const details = await Promise.all(
-    items.slice(0, 6).map(async (item) => {
+    items.slice(0, 30).map(async (item, index) => {
       const userResponse = await githubApi(`/users/${item.login}`, {
         headers: {
           Authorization: `Bearer ${brokerSession.accessToken}`,
         },
       });
       const userPayload = await userResponse.json();
+      const login = String(item.login || "").trim();
+      const name = userPayload.name ? String(userPayload.name).trim() : "";
+      const normalizedLogin = login.toLowerCase();
+      const normalizedName = name.toLowerCase();
+      const exactMatch =
+        normalizedLogin === normalizedSearch || normalizedName === normalizedSearch;
+      const substringMatch =
+        !exactMatch
+        && (
+          normalizedLogin.includes(normalizedSearch)
+          || normalizedName.includes(normalizedSearch)
+        );
+
       return {
         id: item.id,
-        login: item.login,
-        name: userPayload.name || null,
+        login,
+        name: name || null,
         avatarUrl: item.avatar_url || null,
         htmlUrl: item.html_url || null,
+        __rankGroup: exactMatch ? 0 : substringMatch ? 1 : 2,
+        __searchIndex: index,
       };
     }),
   );
 
-  return details;
+  return details
+    .sort((left, right) => left.__rankGroup - right.__rankGroup || left.__searchIndex - right.__searchIndex)
+    .map(({ __rankGroup, __searchIndex, ...detail }) => detail);
 }
 
 export async function inviteUserToOrganizationForInstallation({
