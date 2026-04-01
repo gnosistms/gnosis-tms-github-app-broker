@@ -427,7 +427,7 @@ export function createApp() {
           requireAdmin: false,
         });
         const { githubApi } = await import("./github-app.js");
-        await githubApi(`/user/memberships/orgs/${orgLogin}`, {
+        await githubApi(`/orgs/${orgLogin}/memberships/${request.brokerSession.user.login}`, {
           method: "DELETE",
           headers: {
             Authorization: `Bearer ${request.brokerSession.accessToken}`,
