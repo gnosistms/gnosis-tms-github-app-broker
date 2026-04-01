@@ -172,7 +172,7 @@ export async function ensureGnosisRepoPropertiesSchema({
   orgLogin,
   brokerSession,
 }) {
-  await ensureInstallationAccess({ installationId, brokerSession, requireAdmin: true });
+  await ensureInstallationAccess({ installationId, brokerSession, requireOwner: true });
   const installationToken = await createInstallationAccessToken(installationId);
 
   try {
@@ -240,7 +240,7 @@ export async function createGnosisProjectRepo({
   brokerSession,
 }) {
   const installationToken = await createInstallationAccessToken(installationId);
-  await ensureInstallationAccess({ installationId, brokerSession, requireAdmin: true });
+  await ensureInstallationAccess({ installationId, brokerSession, requireProjectAdmin: true });
   await ensureGnosisRepoPropertiesSchema({ installationId, orgLogin, brokerSession });
 
   const repositoryResponse = await githubApi(`/orgs/${orgLogin}/repos`, {
@@ -318,7 +318,7 @@ export async function markGnosisProjectRepoDeleted({
   repoName,
   brokerSession,
 }) {
-  await ensureInstallationAccess({ installationId, brokerSession, requireAdmin: true });
+  await ensureInstallationAccess({ installationId, brokerSession, requireProjectAdmin: true });
   const installationToken = await createInstallationAccessToken(installationId);
   await githubApi(`/repos/${orgLogin}/${repoName}/properties/values`, {
     method: "PATCH",
@@ -340,7 +340,7 @@ export async function restoreGnosisProjectRepo({
   repoName,
   brokerSession,
 }) {
-  await ensureInstallationAccess({ installationId, brokerSession, requireAdmin: true });
+  await ensureInstallationAccess({ installationId, brokerSession, requireOwner: true });
   const installationToken = await createInstallationAccessToken(installationId);
   await githubApi(`/repos/${orgLogin}/${repoName}/properties/values`, {
     method: "PATCH",
@@ -362,7 +362,7 @@ export async function renameGnosisProjectRepo({
   projectTitle,
   brokerSession,
 }) {
-  await ensureInstallationAccess({ installationId, brokerSession, requireAdmin: true });
+  await ensureInstallationAccess({ installationId, brokerSession, requireProjectAdmin: true });
   const installationToken = await createInstallationAccessToken(installationId);
   const { value, sha } = await getProjectJsonWithSha(fullName, installationToken);
 
@@ -388,7 +388,7 @@ export async function permanentlyDeleteGnosisProjectRepo({
   repoName,
   brokerSession,
 }) {
-  await ensureInstallationAccess({ installationId, brokerSession, requireAdmin: true });
+  await ensureInstallationAccess({ installationId, brokerSession, requireOwner: true });
   const installationToken = await createInstallationAccessToken(installationId);
   await githubApi(`/repos/${orgLogin}/${repoName}`, {
     method: "DELETE",

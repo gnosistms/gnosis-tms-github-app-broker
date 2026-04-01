@@ -1,4 +1,120 @@
+import { config } from "./config.js";
 import { createInstallationAccessToken, getInstallation, githubApi } from "./github-app.js";
+
+function normalizeLogin(login) {
+  return typeof login === "string" && login.trim()
+    ? login.trim().toLowerCase()
+    : "";
+}
+
+function authHeaders(token) {
+  return {
+    Authorization: `Bearer ${token}`,
+  };
+}
+
+async function listOrganizationTeams(orgLogin, token) {
+  const response = await githubApi(`/orgs/${orgLogin}/teams?per_page=100`, {
+    headers: authHeaders(token),
+  });
+  const payload = await response.json();
+  return Array.isArray(payload) ? payload : [];
+}
+
+async function findAdminTeam(orgLogin, token) {
+  const teams = await listOrganizationTeams(orgLogin, token);
+  return teams.find((team) => normalizeLogin(team?.slug) === normalizeLogin(config.adminTeamSlug)) || null;
+}
+
+async function listAdminTeamMemberLogins(orgLogin, installationToken) {
+  let adminTeam = null;
+  try {
+    adminTeam = await findAdminTeam(orgLogin, installationToken);
+  } catch (error) {
+    if (error?.githubStatus === 403 || error?.githubStatus === 404) {
+      return new Set();
+    }
+    throw error;
+  }
+  if (!adminTeam?.slug) {
+    return new Set();
+  }
+
+  try {
+    const response = await githubApi(
+      `/orgs/${orgLogin}/teams/${adminTeam.slug}/members?per_page=100`,
+      {
+        headers: authHeaders(installationToken),
+      },
+    );
+    const payload = await response.json();
+    return new Set(
+      (Array.isArray(payload) ? payload : [])
+        .map((member) => normalizeLogin(member?.login))
+        .filter(Boolean),
+    );
+  } catch (error) {
+    if (error?.githubStatus === 404) {
+      return new Set();
+    }
+    throw error;
+  }
+}
+
+export async function ensureAdminsTeamExists({
+  installationId,
+  orgLogin,
+  brokerSession,
+}) {
+  await ensureInstallationAccess({
+    installationId,
+    brokerSession,
+    requireOwner: true,
+  });
+
+  const existingTeam = await findAdminTeam(orgLogin, brokerSession.accessToken);
+  if (existingTeam) {
+    return existingTeam;
+  }
+
+  const response = await githubApi(`/orgs/${orgLogin}/teams`, {
+    method: "POST",
+    headers: authHeaders(brokerSession.accessToken),
+    body: JSON.stringify({
+      name: config.adminTeamSlug,
+      privacy: "closed",
+    }),
+  });
+
+  return response.json();
+}
+
+export async function configureOrganizationForGnosis({
+  installationId,
+  orgLogin,
+  brokerSession,
+}) {
+  await ensureInstallationAccess({
+    installationId,
+    brokerSession,
+    requireOwner: true,
+  });
+
+  await githubApi(`/orgs/${orgLogin}`, {
+    method: "PATCH",
+    headers: authHeaders(brokerSession.accessToken),
+    body: JSON.stringify({
+      members_can_create_repositories: false,
+      members_can_delete_repositories: false,
+    }),
+  });
+
+  await ensureAdminsTeamExists({
+    installationId,
+    orgLogin,
+    brokerSession,
+  });
+}
 
 async function loadOrganizationMembership(orgLogin, userAccessToken) {
   try {
@@ -46,6 +162,7 @@ export async function getInstallationAccessDetails({
       membershipState: isSelf ? "active" : "inactive",
       membershipRole: isSelf ? "admin" : "member",
       canDelete: isSelf,
+      canManageMembers: isSelf,
       canManageProjects: isSelf,
       canLeave: false,
     };
@@ -61,6 +178,14 @@ export async function getInstallationAccessDetails({
     },
   });
   const orgPayload = await orgResponse.json();
+  const installationToken = await createInstallationAccessToken(installationId);
+  const adminTeamMemberLogins = await listAdminTeamMemberLogins(
+    installation.accountLogin,
+    installationToken,
+  );
+  const isOwner = membership.state === "active" && membership.role === "admin";
+  const isAppAdmin =
+    isOwner || adminTeamMemberLogins.has(normalizeLogin(brokerSession.user.login));
 
   return {
     ...installation,
@@ -68,8 +193,9 @@ export async function getInstallationAccessDetails({
     description: orgPayload.description || null,
     membershipState: membership.state || "unknown",
     membershipRole: membership.role || "member",
-    canDelete: membership.state === "active" && membership.role === "admin",
-    canManageProjects: membership.state === "active" && membership.role === "admin",
+    canDelete: isOwner,
+    canManageMembers: isOwner,
+    canManageProjects: membership.state === "active" && isAppAdmin,
     canLeave: membership.state === "active",
   };
 }
@@ -78,6 +204,8 @@ export async function ensureInstallationAccess({
   installationId,
   brokerSession,
   requireAdmin = false,
+  requireOwner = false,
+  requireProjectAdmin = false,
 }) {
   const installation = await getInstallationAccessDetails({
     installationId,
@@ -96,8 +224,12 @@ export async function ensureInstallationAccess({
     throw new Error(`Your membership in @${installation.accountLogin} is not active.`);
   }
 
-  if (requireAdmin && installation.membershipRole !== "admin") {
+  if ((requireAdmin || requireOwner) && installation.canDelete !== true) {
     throw new Error(`You need admin access in @${installation.accountLogin} for this action.`);
+  }
+
+  if (requireProjectAdmin && installation.canManageProjects !== true) {
+    throw new Error(`You do not have project admin access in @${installation.accountLogin}.`);
   }
 
   return installation;
@@ -198,6 +330,7 @@ export async function listInstallationMembers(installationId, orgLogin, brokerSe
   ]);
   const payload = await membersResponse.json();
   const adminPayload = await adminMembersResponse.json();
+  const adminTeamMemberLogins = await listAdminTeamMemberLogins(orgLogin, installationToken);
   const adminLogins = new Set(
     (Array.isArray(adminPayload) ? adminPayload : [])
       .map((member) => String(member?.login || "").trim().toLowerCase())
@@ -207,7 +340,11 @@ export async function listInstallationMembers(installationId, orgLogin, brokerSe
     login: member.login,
     avatarUrl: member.avatar_url || null,
     htmlUrl: member.html_url || null,
-    role: adminLogins.has(String(member?.login || "").trim().toLowerCase()) ? "admin" : "member",
+    role: adminLogins.has(String(member?.login || "").trim().toLowerCase())
+      ? "owner"
+      : adminTeamMemberLogins.has(normalizeLogin(member?.login))
+        ? "admin"
+        : "member",
   }));
 }
 
@@ -215,7 +352,7 @@ export async function searchGithubUsersForInstallation(installationId, query, br
   await ensureInstallationAccess({
     installationId,
     brokerSession,
-    requireAdmin: true,
+    requireOwner: true,
   });
 
   const normalizedQuery = String(query || "").trim();
@@ -284,7 +421,7 @@ export async function inviteUserToOrganizationForInstallation({
   await ensureInstallationAccess({
     installationId,
     brokerSession,
-    requireAdmin: true,
+    requireOwner: true,
   });
 
   let resolvedInviteeId = inviteeId ?? null;
@@ -323,4 +460,63 @@ export async function inviteUserToOrganizationForInstallation({
     login: payload.login || normalizedLogin || null,
     email: payload.email || normalizedEmail || null,
   };
+}
+
+export async function addOrganizationAdminForInstallation({
+  installationId,
+  orgLogin,
+  username,
+  brokerSession,
+}) {
+  await ensureInstallationAccess({
+    installationId,
+    brokerSession,
+    requireOwner: true,
+  });
+
+  const adminTeam = await ensureAdminsTeamExists({
+    installationId,
+    orgLogin,
+    brokerSession,
+  });
+  const normalizedUsername = String(username || "").trim();
+  if (!normalizedUsername) {
+    throw new Error("Provide a GitHub username to make admin.");
+  }
+
+  await githubApi(`/orgs/${orgLogin}/teams/${adminTeam.slug}/memberships/${normalizedUsername}`, {
+    method: "PUT",
+    headers: authHeaders(brokerSession.accessToken),
+    body: JSON.stringify({
+      role: "member",
+    }),
+  });
+}
+
+export async function removeOrganizationAdminForInstallation({
+  installationId,
+  orgLogin,
+  username,
+  brokerSession,
+}) {
+  await ensureInstallationAccess({
+    installationId,
+    brokerSession,
+    requireOwner: true,
+  });
+
+  const existingTeam = await findAdminTeam(orgLogin, brokerSession.accessToken);
+  if (!existingTeam?.slug) {
+    return;
+  }
+
+  const normalizedUsername = String(username || "").trim();
+  if (!normalizedUsername) {
+    throw new Error("Provide a GitHub username to revoke admin.");
+  }
+
+  await githubApi(`/orgs/${orgLogin}/teams/${existingTeam.slug}/memberships/${normalizedUsername}`, {
+    method: "DELETE",
+    headers: authHeaders(brokerSession.accessToken),
+  });
 }

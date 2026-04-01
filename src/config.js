@@ -24,6 +24,7 @@ function parseAllowedDesktopPrefixes(value) {
 export const config = {
   port: Number.parseInt(optional("PORT", "3000"), 10),
   publicBaseUrl: required("PUBLIC_BASE_URL"),
+  adminTeamSlug: optional("GNOSIS_ADMIN_TEAM_SLUG", "admins"),
   githubAppId: required("GITHUB_APP_ID"),
   githubAppSlug: required("GITHUB_APP_SLUG"),
   githubAppClientId: optional("GITHUB_APP_CLIENT_ID", optional("GITHUB_OAUTH_CLIENT_ID")),

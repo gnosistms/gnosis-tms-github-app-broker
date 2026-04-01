@@ -22,12 +22,15 @@ import {
   restoreGnosisProjectRepo,
 } from "./project-repos.js";
 import {
+  addOrganizationAdminForInstallation,
+  configureOrganizationForGnosis,
   ensureInstallationAccess,
   getInstallationAccessDetails,
   inviteUserToOrganizationForInstallation,
   listAccessibleInstallations,
   listAuthorizedOrganizations,
   listInstallationMembers,
+  removeOrganizationAdminForInstallation,
   searchGithubUsersForInstallation,
 } from "./authorization.js";
 import { decodeInstallState, encodeInstallState } from "./install-state.js";
@@ -341,6 +344,25 @@ export function createApp() {
   );
 
   app.post(
+    "/api/github-app/installations/:installationId/orgs/:orgLogin/setup",
+    ensureBrokerSession,
+    async (request, response) => {
+      try {
+        await configureOrganizationForGnosis({
+          installationId: Number.parseInt(request.params.installationId, 10),
+          orgLogin: request.params.orgLogin,
+          brokerSession: request.brokerSession,
+        });
+        response.status(204).end();
+      } catch (error) {
+        response.status(400).json({
+          error: error instanceof Error ? error.message : String(error),
+        });
+      }
+    },
+  );
+
+  app.post(
     "/api/github-app/installations/:installationId/orgs/:orgLogin/invitations",
     ensureBrokerSession,
     express.json(),
@@ -432,6 +454,46 @@ export function createApp() {
           headers: {
             Authorization: `Bearer ${request.brokerSession.accessToken}`,
           },
+        });
+        response.status(204).end();
+      } catch (error) {
+        response.status(400).json({
+          error: error instanceof Error ? error.message : String(error),
+        });
+      }
+    },
+  );
+
+  app.patch(
+    "/api/github-app/installations/:installationId/orgs/:orgLogin/admins/:username",
+    ensureBrokerSession,
+    async (request, response) => {
+      try {
+        await addOrganizationAdminForInstallation({
+          installationId: Number.parseInt(request.params.installationId, 10),
+          orgLogin: request.params.orgLogin,
+          username: request.params.username,
+          brokerSession: request.brokerSession,
+        });
+        response.status(204).end();
+      } catch (error) {
+        response.status(400).json({
+          error: error instanceof Error ? error.message : String(error),
+        });
+      }
+    },
+  );
+
+  app.delete(
+    "/api/github-app/installations/:installationId/orgs/:orgLogin/admins/:username",
+    ensureBrokerSession,
+    async (request, response) => {
+      try {
+        await removeOrganizationAdminForInstallation({
+          installationId: Number.parseInt(request.params.installationId, 10),
+          orgLogin: request.params.orgLogin,
+          username: request.params.username,
+          brokerSession: request.brokerSession,
         });
         response.status(204).end();
       } catch (error) {
