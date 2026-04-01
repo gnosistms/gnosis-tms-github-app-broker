@@ -1,12 +1,36 @@
 import { createInstallationAccessToken, getInstallation, githubApi } from "./github-app.js";
 
 async function loadOrganizationMembership(orgLogin, userAccessToken) {
-  const response = await githubApi(`/user/memberships/orgs/${orgLogin}`, {
-    headers: {
-      Authorization: `Bearer ${userAccessToken}`,
-    },
-  });
-  return response.json();
+  try {
+    const response = await githubApi(`/user/memberships/orgs/${orgLogin}`, {
+      headers: {
+        Authorization: `Bearer ${userAccessToken}`,
+      },
+    });
+    return response.json();
+  } catch (error) {
+    if (error?.githubStatus !== 404) {
+      throw error;
+    }
+
+    const fallbackResponse = await githubApi("/user/memberships/orgs?state=active&per_page=100", {
+      headers: {
+        Authorization: `Bearer ${userAccessToken}`,
+      },
+    });
+    const memberships = await fallbackResponse.json();
+    const match = Array.isArray(memberships)
+      ? memberships.find(
+          (membership) => membership?.organization?.login === orgLogin,
+        )
+      : null;
+
+    if (match) {
+      return match;
+    }
+
+    throw error;
+  }
 }
 
 export async function getInstallationAccessDetails({
