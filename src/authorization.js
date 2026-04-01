@@ -168,7 +168,7 @@ export async function searchGithubUsersForInstallation(installationId, query, br
   }
 
   const searchResponse = await githubApi(
-    `/search/users?q=${encodeURIComponent(normalizedQuery)}+in:login+in:fullname+type:user&per_page=6`,
+    `/search/users?q=${encodeURIComponent(normalizedQuery)}+type:user&per_page=6`,
     {
       headers: {
         Authorization: `Bearer ${brokerSession.accessToken}`,
