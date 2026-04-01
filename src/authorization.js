@@ -189,16 +189,25 @@ export async function listInstallationMembers(installationId, orgLogin, brokerSe
   });
 
   const installationToken = await createInstallationAccessToken(installationId);
-  const response = await githubApi(`/orgs/${orgLogin}/members?per_page=100`, {
-    headers: {
-      Authorization: `Bearer ${installationToken}`,
-    },
-  });
-  const payload = await response.json();
-  return payload.map((member) => ({
+  const headers = {
+    Authorization: `Bearer ${installationToken}`,
+  };
+  const [membersResponse, adminMembersResponse] = await Promise.all([
+    githubApi(`/orgs/${orgLogin}/members?per_page=100`, { headers }),
+    githubApi(`/orgs/${orgLogin}/members?role=admin&per_page=100`, { headers }),
+  ]);
+  const payload = await membersResponse.json();
+  const adminPayload = await adminMembersResponse.json();
+  const adminLogins = new Set(
+    (Array.isArray(adminPayload) ? adminPayload : [])
+      .map((member) => String(member?.login || "").trim().toLowerCase())
+      .filter(Boolean),
+  );
+  return (Array.isArray(payload) ? payload : []).map((member) => ({
     login: member.login,
     avatarUrl: member.avatar_url || null,
     htmlUrl: member.html_url || null,
+    role: adminLogins.has(String(member?.login || "").trim().toLowerCase()) ? "admin" : "member",
   }));
 }
 
