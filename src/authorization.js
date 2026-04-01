@@ -167,7 +167,7 @@ export async function listAccessibleInstallations(brokerSession) {
   const payload = await response.json();
   const installations = Array.isArray(payload.installations) ? payload.installations : [];
 
-  return Promise.all(
+  const results = await Promise.allSettled(
     installations.map((installation) =>
       getInstallationAccessDetails({
         installationId: installation.id,
@@ -175,6 +175,10 @@ export async function listAccessibleInstallations(brokerSession) {
       }),
     ),
   );
+
+  return results
+    .filter((result) => result.status === "fulfilled")
+    .map((result) => result.value);
 }
 
 export async function listInstallationMembers(installationId, orgLogin, brokerSession) {
