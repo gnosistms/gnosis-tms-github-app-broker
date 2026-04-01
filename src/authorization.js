@@ -134,6 +134,25 @@ export async function listAuthorizedOrganizations(brokerSession) {
   return details;
 }
 
+export async function listAccessibleInstallations(brokerSession) {
+  const response = await githubApi("/user/installations?per_page=100", {
+    headers: {
+      Authorization: `Bearer ${brokerSession.accessToken}`,
+    },
+  });
+  const payload = await response.json();
+  const installations = Array.isArray(payload.installations) ? payload.installations : [];
+
+  return Promise.all(
+    installations.map((installation) =>
+      getInstallationAccessDetails({
+        installationId: installation.id,
+        brokerSession,
+      }),
+    ),
+  );
+}
+
 export async function listInstallationMembers(installationId, orgLogin, brokerSession) {
   await ensureInstallationAccess({
     installationId,

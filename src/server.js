@@ -25,6 +25,7 @@ import {
   ensureInstallationAccess,
   getInstallationAccessDetails,
   inviteUserToOrganizationForInstallation,
+  listAccessibleInstallations,
   listAuthorizedOrganizations,
   listInstallationMembers,
   searchGithubUsersForInstallation,
@@ -129,6 +130,16 @@ export function createApp() {
   app.post("/api/auth/logout", ensureBrokerSession, (request, response) => {
     revokeBrokerSessionFromHeader(request);
     response.status(204).end();
+  });
+
+  app.get("/api/github-app/installations", ensureBrokerSession, async (request, response) => {
+    try {
+      response.json(await listAccessibleInstallations(request.brokerSession));
+    } catch (error) {
+      response.status(400).json({
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
   });
 
   app.get("/github-app/install/start", (request, response) => {
