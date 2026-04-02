@@ -27,11 +27,8 @@ export const config = {
   adminTeamSlug: optional("GNOSIS_ADMIN_TEAM_SLUG", "admins"),
   githubAppId: required("GITHUB_APP_ID"),
   githubAppSlug: required("GITHUB_APP_SLUG"),
-  githubAppClientId: optional("GITHUB_APP_CLIENT_ID", optional("GITHUB_OAUTH_CLIENT_ID")),
-  githubAppClientSecret: optional(
-    "GITHUB_APP_CLIENT_SECRET",
-    optional("GITHUB_OAUTH_CLIENT_SECRET"),
-  ),
+  githubAppClientId: required("GITHUB_APP_CLIENT_ID"),
+  githubAppClientSecret: required("GITHUB_APP_CLIENT_SECRET"),
   githubAppPrivateKey: required("GITHUB_APP_PRIVATE_KEY").replace(/\\n/g, "\n"),
   brokerStateSecret: required("BROKER_STATE_SECRET"),
   brokerToken: optional("BROKER_TOKEN"),
@@ -39,15 +36,3 @@ export const config = {
     optional("ALLOWED_DESKTOP_CALLBACK_PREFIXES", "http://127.0.0.1:45873/"),
   ),
 };
-
-if (!config.githubAppClientId) {
-  throw new Error(
-    "Missing required environment variable: GITHUB_APP_CLIENT_ID (or legacy GITHUB_OAUTH_CLIENT_ID)",
-  );
-}
-
-if (!config.githubAppClientSecret) {
-  throw new Error(
-    "Missing required environment variable: GITHUB_APP_CLIENT_SECRET (or legacy GITHUB_OAUTH_CLIENT_SECRET)",
-  );
-}
