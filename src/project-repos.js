@@ -143,7 +143,7 @@ export async function restoreGnosisProjectRepo({
   repoName,
   brokerSession,
 }) {
-  await ensureInstallationAccess({ installationId, brokerSession, requireOwner: true });
+  await ensureInstallationAccess({ installationId, brokerSession, requireProjectAdmin: true });
   const installationToken = await createInstallationAccessToken(installationId);
   await updateRepositoryStatus(orgLogin, repoName, GNOSIS_TMS_REPO_STATUS_ACTIVE, installationToken);
 }
