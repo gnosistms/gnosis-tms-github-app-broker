@@ -1,0 +1,147 @@
+import {
+  GNOSIS_TMS_REPO_STATUS_ACTIVE,
+  GNOSIS_TMS_REPO_STATUS_DELETED,
+  GNOSIS_TMS_REPO_STATUS_PROPERTY_NAME,
+  GNOSIS_TMS_REPO_TYPE_GLOSSARY,
+  GNOSIS_TMS_REPO_TYPE_PROJECT,
+  GNOSIS_TMS_REPO_TYPE_PROPERTY_NAME,
+} from "./constants.js";
+import { githubApi } from "./github-app.js";
+
+function authHeaders(token) {
+  return {
+    Authorization: `Bearer ${token}`,
+  };
+}
+
+function createPropertySchemaPayload() {
+  return {
+    properties: [
+      {
+        property_name: GNOSIS_TMS_REPO_TYPE_PROPERTY_NAME,
+        value_type: "single_select",
+        description: "Identifies the role of repositories created by Gnosis TMS.",
+        allowed_values: [
+          GNOSIS_TMS_REPO_TYPE_PROJECT,
+          GNOSIS_TMS_REPO_TYPE_GLOSSARY,
+        ],
+        values_editable_by: "org_actors",
+        required: false,
+      },
+      {
+        property_name: GNOSIS_TMS_REPO_STATUS_PROPERTY_NAME,
+        value_type: "single_select",
+        description: "Tracks whether a Gnosis TMS repository is active or soft deleted.",
+        allowed_values: [
+          GNOSIS_TMS_REPO_STATUS_ACTIVE,
+          GNOSIS_TMS_REPO_STATUS_DELETED,
+        ],
+        values_editable_by: "org_actors",
+        required: false,
+      },
+    ],
+  };
+}
+
+function propertyValueMatches(value, expected) {
+  if (typeof value === "string") {
+    return value === expected;
+  }
+
+  if (Array.isArray(value)) {
+    return value.includes(expected);
+  }
+
+  return false;
+}
+
+export async function ensureRepositoryPropertiesSchema(orgLogin, installationToken) {
+  try {
+    await githubApi(`/orgs/${orgLogin}/properties/schema`, {
+      method: "PATCH",
+      headers: authHeaders(installationToken),
+      body: JSON.stringify(createPropertySchemaPayload()),
+    });
+  } catch (error) {
+    const status = error.githubStatus;
+    if (status === 403) {
+      throw new Error(
+        "GitHub rejected the repository property schema update. The Gnosis TMS GitHub App needs the organization permission `Custom properties: Admin`.",
+      );
+    }
+    throw error;
+  }
+}
+
+export async function getRepositoryProperties(fullName, installationToken) {
+  const response = await githubApi(`/repos/${fullName}/properties/values`, {
+    headers: authHeaders(installationToken),
+  });
+  return response.json();
+}
+
+export function isProjectRepository(properties) {
+  return properties.some(
+    (property) =>
+      property.property_name === GNOSIS_TMS_REPO_TYPE_PROPERTY_NAME &&
+      propertyValueMatches(property.value, GNOSIS_TMS_REPO_TYPE_PROJECT),
+  );
+}
+
+export function isSoftDeletedRepository(properties) {
+  return properties.some(
+    (property) =>
+      property.property_name === GNOSIS_TMS_REPO_STATUS_PROPERTY_NAME &&
+      propertyValueMatches(property.value, GNOSIS_TMS_REPO_STATUS_DELETED),
+  );
+}
+
+export async function assignInitialProjectProperties(orgLogin, repoName, installationToken) {
+  try {
+    await githubApi(`/repos/${orgLogin}/${repoName}/properties/values`, {
+      method: "PATCH",
+      headers: authHeaders(installationToken),
+      body: JSON.stringify({
+        properties: [
+          {
+            property_name: GNOSIS_TMS_REPO_TYPE_PROPERTY_NAME,
+            value: GNOSIS_TMS_REPO_TYPE_PROJECT,
+          },
+          {
+            property_name: GNOSIS_TMS_REPO_STATUS_PROPERTY_NAME,
+            value: GNOSIS_TMS_REPO_STATUS_ACTIVE,
+          },
+        ],
+      }),
+    });
+  } catch (error) {
+    if (error.githubStatus === 403) {
+      throw new Error(
+        "GitHub rejected the Gnosis TMS project property update. The Gnosis TMS GitHub App needs the repository permission `Custom properties: Read and write`, and the installation may need to be updated after you save that permission.",
+      );
+    }
+    throw error;
+  }
+}
+
+export async function updateRepositoryStatus(orgLogin, repoName, nextStatus, installationToken) {
+  await githubApi(`/repos/${orgLogin}/${repoName}/properties/values`, {
+    method: "PATCH",
+    headers: authHeaders(installationToken),
+    body: JSON.stringify({
+      properties: [
+        {
+          property_name: GNOSIS_TMS_REPO_STATUS_PROPERTY_NAME,
+          value: nextStatus,
+        },
+      ],
+    }),
+  });
+}
+
+export async function deleteRepository(orgLogin, repoName, installationToken) {
+  await githubApi(`/repos/${orgLogin}/${repoName}`, {
+    method: "DELETE",
+    headers: authHeaders(installationToken),
+  });
+}
