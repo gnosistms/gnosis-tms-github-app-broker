@@ -4,7 +4,7 @@ import { createInstallationAccessToken, getInstallation, githubApi } from "./git
 const REQUIRED_INSTALLATION_PERMISSIONS = {
   members: "write",
   administration: "write",
-  custom_properties: "admin",
+  custom_properties: "write",
   contents: "write",
   metadata: "read",
 };
