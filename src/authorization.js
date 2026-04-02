@@ -152,8 +152,16 @@ async function loadOrganizationMembership(orgLogin, userAccessToken) {
 export async function getInstallationAccessDetails({
   installationId,
   brokerSession,
+  installationSummary = null,
 }) {
   const installation = await getInstallation(installationId);
+  const needsMembersWriteApproval =
+    installation.accountType === "Organization"
+    && installationSummary?.permissions?.members !== "write";
+  const appApprovalUrl =
+    installation.accountType === "Organization" && installation.accountLogin
+      ? `https://github.com/organizations/${installation.accountLogin}/settings/installations`
+      : null;
 
   if (installation.accountType === "User") {
     const isSelf = installation.accountLogin === brokerSession.user.login;
@@ -165,6 +173,8 @@ export async function getInstallationAccessDetails({
       canManageMembers: isSelf,
       canManageProjects: isSelf,
       canLeave: false,
+      needsAppApproval: false,
+      appApprovalUrl: null,
     };
   }
 
@@ -197,6 +207,8 @@ export async function getInstallationAccessDetails({
     canManageMembers: isOwner,
     canManageProjects: membership.state === "active" && isAppAdmin,
     canLeave: membership.state === "active",
+    needsAppApproval: needsMembersWriteApproval,
+    appApprovalUrl,
   };
 }
 
@@ -304,6 +316,7 @@ export async function listAccessibleInstallations(brokerSession) {
       getInstallationAccessDetails({
         installationId: installation.id,
         brokerSession,
+        installationSummary: installation,
       }),
     ),
   );
