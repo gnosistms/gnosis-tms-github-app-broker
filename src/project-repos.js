@@ -2,7 +2,7 @@ import {
   GNOSIS_TMS_REPO_STATUS_ACTIVE,
   GNOSIS_TMS_REPO_STATUS_DELETED,
 } from "./constants.js";
-import { ensureInstallationAccess } from "./authorization.js";
+import { ensureInstallationAccess } from "./installation-access.js";
 import {
   createInstallationAccessToken,
   githubApi,
