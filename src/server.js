@@ -11,7 +11,7 @@ import {
   revokeBrokerSessionFromHeader,
   validateDesktopRedirectUri,
 } from "./broker-auth.js";
-import { getInstallation, listInstallationRepositories } from "./github-app.js";
+import { createInstallationAccessToken, getInstallation, githubApi, listInstallationRepositories } from "./github-app.js";
 import {
   createGnosisProjectRepo,
   ensureGnosisRepoPropertiesSchema,
@@ -448,11 +448,11 @@ export function createApp() {
           brokerSession: request.brokerSession,
           requireAdmin: false,
         });
-        const { githubApi } = await import("./github-app.js");
+        const installationToken = await createInstallationAccessToken(installationId);
         await githubApi(`/orgs/${orgLogin}/memberships/${request.brokerSession.user.login}`, {
           method: "DELETE",
           headers: {
-            Authorization: `Bearer ${request.brokerSession.accessToken}`,
+            Authorization: `Bearer ${installationToken}`,
           },
         });
         response.status(204).end();
