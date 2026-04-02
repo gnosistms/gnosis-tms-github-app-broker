@@ -59,9 +59,13 @@ export async function getInstallation(installationId) {
   return {
     installationId: installation.id,
     accountLogin: installation.account?.login || "",
+    accountId: installation.account?.id || null,
     accountType: installation.account?.type || "",
     accountAvatarUrl: installation.account?.avatar_url || null,
     accountHtmlUrl: installation.account?.html_url || null,
+    installationHtmlUrl: installation.html_url || null,
+    appSlug: installation.app_slug || config.githubAppSlug,
+    targetType: installation.target_type || installation.account?.type || "",
   };
 }
 

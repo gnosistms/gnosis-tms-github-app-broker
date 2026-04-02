@@ -189,8 +189,17 @@ export async function getInstallationAccessDetails({
       ? listMissingInstallationPermissions(installationSummary?.permissions)
       : [];
   const appApprovalUrl =
-    installation.accountType === "Organization" && installation.accountLogin
-      ? `https://github.com/organizations/${installation.accountLogin}/settings/installations`
+    installation.accountType === "Organization"
+      ? installation.installationHtmlUrl
+        || (installation.accountLogin
+          ? `https://github.com/organizations/${installation.accountLogin}/settings/installations`
+          : null)
+      : null;
+  const appRequestUrl =
+    installation.accountType === "Organization"
+    && installation.appSlug
+    && installation.accountId
+      ? `https://github.com/apps/${installation.appSlug}/installations/new?target_id=${installation.accountId}&target_type=${encodeURIComponent(installation.targetType || "Organization")}`
       : null;
 
   if (installation.accountType === "User") {
@@ -205,6 +214,7 @@ export async function getInstallationAccessDetails({
       canLeave: false,
       needsAppApproval: false,
       appApprovalUrl: null,
+      appRequestUrl: null,
       missingAppPermissions: [],
     };
   }
@@ -240,6 +250,7 @@ export async function getInstallationAccessDetails({
     canLeave: membership.state === "active",
     needsAppApproval: missingAppPermissions.length > 0,
     appApprovalUrl,
+    appRequestUrl,
     missingAppPermissions,
   };
 }
