@@ -66,6 +66,7 @@ export async function getInstallation(installationId) {
     installationHtmlUrl: installation.html_url || null,
     appSlug: installation.app_slug || config.githubAppSlug,
     targetType: installation.target_type || installation.account?.type || "",
+    permissions: installation.permissions || {},
   };
 }
 

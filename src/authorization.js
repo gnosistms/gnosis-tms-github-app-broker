@@ -1,39 +1,10 @@
 import { config } from "./config.js";
 import { createInstallationAccessToken, getInstallation, githubApi } from "./github-app.js";
 
-const REQUIRED_INSTALLATION_PERMISSIONS = {
-  members: "write",
-  administration: "write",
-  custom_properties: "write",
-  contents: "write",
-  metadata: "read",
-};
-
-const PERMISSION_LEVELS = {
-  read: 1,
-  write: 2,
-  admin: 3,
-};
-
 function normalizeLogin(login) {
   return typeof login === "string" && login.trim()
     ? login.trim().toLowerCase()
     : "";
-}
-
-function normalizePermissionLevel(level) {
-  return typeof level === "string" && level.trim()
-    ? level.trim().toLowerCase()
-    : "";
-}
-
-function listMissingInstallationPermissions(grantedPermissions = {}) {
-  return Object.entries(REQUIRED_INSTALLATION_PERMISSIONS)
-    .filter(([permission, requiredLevel]) => {
-      const grantedLevel = normalizePermissionLevel(grantedPermissions?.[permission]);
-      return (PERMISSION_LEVELS[grantedLevel] ?? 0) < (PERMISSION_LEVELS[requiredLevel] ?? 0);
-    })
-    .map(([permission, requiredLevel]) => `${permission}:${requiredLevel}`);
 }
 
 function authHeaders(token) {
@@ -184,10 +155,10 @@ export async function getInstallationAccessDetails({
   installationSummary = null,
 }) {
   const installation = await getInstallation(installationId);
-  const missingAppPermissions =
+  const permissions =
     installation.accountType === "Organization"
-      ? listMissingInstallationPermissions(installationSummary?.permissions)
-      : [];
+      ? installation.permissions || installationSummary?.permissions || {}
+      : {};
   const appApprovalUrl =
     installation.accountType === "Organization"
       ? installation.installationHtmlUrl
@@ -212,10 +183,9 @@ export async function getInstallationAccessDetails({
       canManageMembers: isSelf,
       canManageProjects: isSelf,
       canLeave: false,
-      needsAppApproval: false,
+      permissions: {},
       appApprovalUrl: null,
       appRequestUrl: null,
-      missingAppPermissions: [],
     };
   }
 
@@ -248,10 +218,9 @@ export async function getInstallationAccessDetails({
     canManageMembers: isOwner,
     canManageProjects: membership.state === "active" && isAppAdmin,
     canLeave: membership.state === "active",
-    needsAppApproval: missingAppPermissions.length > 0,
+    permissions,
     appApprovalUrl,
     appRequestUrl,
-    missingAppPermissions,
   };
 }
 
