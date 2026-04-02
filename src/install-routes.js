@@ -4,11 +4,10 @@ import { config } from "./config.js";
 import { ensureAllowedDesktopCallback, ensureBrokerSession } from "./security.js";
 import { decodeInstallState, encodeInstallState } from "./install-state.js";
 import { createInstallationAccessToken, getInstallation, githubApi, listInstallationRepositories } from "./github-app.js";
+import { ensureInstallationAccess, getInstallationAccessDetails } from "./installation-access.js";
 import {
   addOrganizationAdminForInstallation,
   configureOrganizationForGnosis,
-  ensureInstallationAccess,
-  getInstallationAccessDetails,
   inviteUserToOrganizationForInstallation,
   listAccessibleInstallations,
   listInstallationMembers,
