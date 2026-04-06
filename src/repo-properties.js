@@ -11,6 +11,8 @@ function authHeaders(token) {
   };
 }
 
+const ORGANIZATION_REPOSITORY_PROPERTY_VALUES_PER_PAGE = 100;
+
 function createPropertySchemaPayload() {
   return {
     properties: [
@@ -59,11 +61,29 @@ export async function ensureRepositoryPropertiesSchema(orgLogin, installationTok
   }
 }
 
-export async function getRepositoryProperties(fullName, installationToken) {
-  const response = await githubApi(`/repos/${fullName}/properties/values`, {
-    headers: authHeaders(installationToken),
-  });
-  return response.json();
+export async function listOrganizationRepositoryPropertyValues(orgLogin, installationToken) {
+  const repositoryPropertyValues = [];
+  let page = 1;
+
+  while (true) {
+    const response = await githubApi(
+      `/orgs/${orgLogin}/properties/values?per_page=${ORGANIZATION_REPOSITORY_PROPERTY_VALUES_PER_PAGE}&page=${page}`,
+      {
+        headers: authHeaders(installationToken),
+      },
+    );
+    const payload = await response.json();
+    const batch = Array.isArray(payload) ? payload : [];
+    repositoryPropertyValues.push(...batch);
+
+    if (batch.length < ORGANIZATION_REPOSITORY_PROPERTY_VALUES_PER_PAGE) {
+      break;
+    }
+
+    page += 1;
+  }
+
+  return repositoryPropertyValues;
 }
 
 export function isProjectRepository(properties) {

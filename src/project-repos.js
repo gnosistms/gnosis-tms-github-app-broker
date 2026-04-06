@@ -12,8 +12,8 @@ import {
   assignInitialProjectProperties,
   deleteRepository,
   ensureRepositoryPropertiesSchema,
-  getRepositoryProperties,
   isProjectRepository,
+  listOrganizationRepositoryPropertyValues,
 } from "./repo-properties.js";
 import {
   initializeProjectMetadata,
@@ -23,9 +23,7 @@ import {
 } from "./project-metadata.js";
 
 const INSTALLATION_REPOSITORIES_PER_PAGE = 100;
-const PROJECT_DISCOVERY_CONCURRENCY = 10;
 const PROJECT_METADATA_CONCURRENCY = 10;
-const PROJECT_DISCOVERY_CACHE_TTL_MS = 5 * 60 * 1000;
 const REPOSITORY_REMOTE_HEADS_QUERY = `
   query RepositoryRemoteHeads($ids: [ID!]!) {
     nodes(ids: $ids) {
@@ -87,32 +85,6 @@ function pruneInstallationProjectCache(installationId, repositories) {
   return cache;
 }
 
-function loadCachedDiscovery(cache, fullName) {
-  const entry = cache.get(repoCacheKey(fullName));
-  if (!entry) {
-    return null;
-  }
-
-  const checkedAt = Number(entry.discoveryCheckedAt || 0);
-  if (!Number.isFinite(checkedAt) || Date.now() - checkedAt > PROJECT_DISCOVERY_CACHE_TTL_MS) {
-    return null;
-  }
-
-  return entry.isProject === true || entry.isProject === false
-    ? { isProject: entry.isProject }
-    : null;
-}
-
-function saveCachedDiscovery(cache, fullName, isProject) {
-  const key = repoCacheKey(fullName);
-  const entry = cache.get(key) || {};
-  cache.set(key, {
-    ...entry,
-    isProject: isProject === true,
-    discoveryCheckedAt: Date.now(),
-  });
-}
-
 function loadCachedProjectMetadata(cache, fullName, remoteHeadOid) {
   const entry = cache.get(repoCacheKey(fullName));
   const metadata = entry?.projectMetadata;
@@ -170,6 +142,95 @@ function saveCachedProjectMetadata(cache, fullName, remoteHeadOid, projectIdenti
         typeof remoteHeadOid === "string" && remoteHeadOid.trim() ? remoteHeadOid.trim() : null,
     },
   });
+}
+
+function deriveOrgLoginFromRepositories(repositories) {
+  for (const repository of repositories || []) {
+    const ownerLogin =
+      typeof repository?.owner?.login === "string" && repository.owner.login.trim()
+        ? repository.owner.login.trim()
+        : null;
+    if (ownerLogin) {
+      return ownerLogin;
+    }
+
+    const fullName =
+      typeof repository?.full_name === "string" && repository.full_name.trim()
+        ? repository.full_name.trim()
+        : null;
+    if (fullName && fullName.includes("/")) {
+      return fullName.split("/")[0];
+    }
+  }
+
+  return null;
+}
+
+function propertyRepositoryKey(entry) {
+  if (!entry || typeof entry !== "object") {
+    return null;
+  }
+
+  const fullName =
+    typeof entry.repository_full_name === "string" && entry.repository_full_name.trim()
+      ? entry.repository_full_name.trim()
+      : typeof entry.repositoryFullName === "string" && entry.repositoryFullName.trim()
+        ? entry.repositoryFullName.trim()
+        : null;
+  if (fullName) {
+    return repoCacheKey(fullName);
+  }
+
+  const owner =
+    typeof entry.repository_owner === "string" && entry.repository_owner.trim()
+      ? entry.repository_owner.trim()
+      : typeof entry.repositoryOwner === "string" && entry.repositoryOwner.trim()
+        ? entry.repositoryOwner.trim()
+        : null;
+  const name =
+    typeof entry.repository_name === "string" && entry.repository_name.trim()
+      ? entry.repository_name.trim()
+      : typeof entry.repositoryName === "string" && entry.repositoryName.trim()
+        ? entry.repositoryName.trim()
+        : null;
+
+  if (owner && name) {
+    return repoCacheKey(`${owner}/${name}`);
+  }
+
+  return null;
+}
+
+function propertiesFromOrganizationEntry(entry) {
+  if (!entry || typeof entry !== "object") {
+    return [];
+  }
+
+  if (Array.isArray(entry.properties)) {
+    return entry.properties;
+  }
+
+  if (Array.isArray(entry.property_values)) {
+    return entry.property_values;
+  }
+
+  if (Array.isArray(entry.propertyValues)) {
+    return entry.propertyValues;
+  }
+
+  return [];
+}
+
+function buildOrgPropertyMap(entries) {
+  const map = new Map();
+  for (const entry of entries || []) {
+    const key = propertyRepositoryKey(entry);
+    if (!key) {
+      continue;
+    }
+    map.set(key, propertiesFromOrganizationEntry(entry));
+  }
+  return map;
 }
 
 async function mapWithConcurrency(items, concurrency, mapper) {
@@ -283,27 +344,17 @@ export async function listGnosisProjectsForInstallation(installationId, brokerSe
   const repositories = await listInstallationRepositoriesRaw(installationToken);
   const remoteHeadsByRepoKey = await loadRepositoryRemoteHeadsMap(repositories, installationToken);
   const cache = pruneInstallationProjectCache(installationId, repositories);
-  const repositoryInfos = await mapWithConcurrency(
-    repositories,
-    PROJECT_DISCOVERY_CONCURRENCY,
-    async (repository) => {
-      const cachedDiscovery = loadCachedDiscovery(cache, repository.full_name);
-      if (cachedDiscovery) {
-        return {
-          repository,
-          isProject: cachedDiscovery.isProject,
-        };
-      }
-
-      const properties = await getRepositoryProperties(repository.full_name, installationToken);
-      const isProject = isProjectRepository(properties);
-      saveCachedDiscovery(cache, repository.full_name, isProject);
-      return {
-        repository,
-        isProject,
-      };
-    },
-  );
+  const orgLogin = deriveOrgLoginFromRepositories(repositories);
+  const organizationPropertyValues = orgLogin
+    ? await listOrganizationRepositoryPropertyValues(orgLogin, installationToken)
+    : [];
+  const orgPropertyMap = buildOrgPropertyMap(organizationPropertyValues);
+  const repositoryInfos = repositories.map((repository) => ({
+    repository,
+    isProject: isProjectRepository(
+      orgPropertyMap.get(repoCacheKey(repository.full_name)) || [],
+    ),
+  }));
 
   const projectInfos = repositoryInfos.filter((info) => info.isProject);
   return mapWithConcurrency(
