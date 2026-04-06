@@ -4,6 +4,7 @@ import { ensureBrokerSession } from "./security.js";
 import {
   createGnosisProjectRepo,
   ensureGnosisRepoPropertiesSchema,
+  getInstallationGitTransportToken,
   listGnosisProjectsForInstallation,
   markGnosisProjectRepoDeleted,
   permanentlyDeleteGnosisProjectRepo,
@@ -34,6 +35,18 @@ export function registerProjectRoutes(app) {
         parseInstallationId(request.params.installationId),
         request.brokerSession,
       );
+      response.json(payload);
+    }),
+  );
+
+  app.get(
+    "/api/github-app/installations/:installationId/git-transport-token",
+    ensureBrokerSession,
+    asyncJsonRoute(async (request, response) => {
+      const payload = await getInstallationGitTransportToken({
+        installationId: parseInstallationId(request.params.installationId),
+        brokerSession: request.brokerSession,
+      });
       response.json(payload);
     }),
   );

@@ -44,6 +44,33 @@ export async function githubApi(path, options = {}) {
   return response;
 }
 
+export async function githubGraphql(query, variables = {}, options = {}) {
+  const response = await githubApi("/graphql", {
+    method: "POST",
+    ...options,
+    headers: {
+      "Content-Type": "application/json",
+      ...(options.headers || {}),
+    },
+    body: JSON.stringify({
+      query,
+      variables,
+    }),
+  });
+
+  const payload = await response.json();
+  if (Array.isArray(payload.errors) && payload.errors.length > 0) {
+    const message = payload.errors
+      .map((error) => error?.message || "Unknown GraphQL error")
+      .join("; ");
+    const graphQlError = new Error(`GitHub GraphQL API: ${message}`);
+    graphQlError.githubErrors = payload.errors;
+    throw graphQlError;
+  }
+
+  return payload.data || {};
+}
+
 export function parseGithubError(status, body) {
   return `GitHub API ${status}: ${body}`;
 }
