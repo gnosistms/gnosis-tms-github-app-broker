@@ -107,10 +107,6 @@ export async function assignInitialProjectProperties(orgLogin, repoName, install
             property_name: GNOSIS_TMS_REPO_TYPE_PROPERTY_NAME,
             value: GNOSIS_TMS_REPO_TYPE_PROJECT,
           },
-          {
-            property_name: GNOSIS_TMS_REPO_STATUS_PROPERTY_NAME,
-            value: GNOSIS_TMS_REPO_STATUS_ACTIVE,
-          },
         ],
       }),
     });

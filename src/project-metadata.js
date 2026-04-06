@@ -1,6 +1,10 @@
 import crypto from "node:crypto";
 
 import { githubApi } from "./github-app.js";
+import {
+  GNOSIS_TMS_REPO_STATUS_ACTIVE,
+  GNOSIS_TMS_REPO_STATUS_DELETED,
+} from "./constants.js";
 
 function authHeaders(token) {
   return {
@@ -66,7 +70,12 @@ export async function loadProjectIdentity(fullName, installationToken) {
     throw new Error(`project.json in ${fullName} is missing project_id or title`);
   }
 
-  return { projectId, title };
+  const status =
+    value?.lifecycle?.state === GNOSIS_TMS_REPO_STATUS_DELETED
+      ? GNOSIS_TMS_REPO_STATUS_DELETED
+      : GNOSIS_TMS_REPO_STATUS_ACTIVE;
+
+  return { projectId, title, status };
 }
 
 export async function initializeProjectMetadata(fullName, projectTitle, installationToken) {
@@ -75,7 +84,11 @@ export async function initializeProjectMetadata(fullName, projectTitle, installa
     {
       project_id: projectId,
       title: projectTitle,
+      lifecycle: {
+        state: GNOSIS_TMS_REPO_STATUS_ACTIVE,
+      },
       chapter_order: [],
+      deleted_chapter_order: [],
     },
     null,
     2,
@@ -100,6 +113,7 @@ export async function initializeProjectMetadata(fullName, projectTitle, installa
   return {
     projectId,
     title: projectTitle,
+    status: GNOSIS_TMS_REPO_STATUS_ACTIVE,
   };
 }
 
@@ -116,6 +130,29 @@ export async function renameProjectMetadata(fullName, projectTitle, installation
     fullName,
     path: "project.json",
     message: "Rename project",
+    content: JSON.stringify(value, null, 2),
+    installationToken,
+    sha,
+  });
+}
+
+export async function updateProjectLifecycle(fullName, nextState, installationToken) {
+  const { value, sha } = await getProjectJsonWithSha(fullName, installationToken);
+
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw new Error(`project.json in ${fullName} is not an object`);
+  }
+
+  value.lifecycle = {
+    ...(value.lifecycle && typeof value.lifecycle === "object" ? value.lifecycle : {}),
+    state: nextState,
+  };
+
+  await updateRepositoryFile({
+    fullName,
+    path: "project.json",
+    message:
+      nextState === GNOSIS_TMS_REPO_STATUS_DELETED ? "Soft delete project" : "Restore project",
     content: JSON.stringify(value, null, 2),
     installationToken,
     sha,

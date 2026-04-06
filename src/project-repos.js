@@ -15,15 +15,18 @@ import {
   getRepositoryProperties,
   isProjectRepository,
   isSoftDeletedRepository,
-  updateRepositoryStatus,
 } from "./repo-properties.js";
 import {
   initializeProjectMetadata,
   loadProjectIdentity,
   renameProjectMetadata,
+  updateProjectLifecycle,
 } from "./project-metadata.js";
 
 const INSTALLATION_REPOSITORIES_PER_PAGE = 100;
+const PROJECT_DISCOVERY_CONCURRENCY = 10;
+const PROJECT_METADATA_CONCURRENCY = 10;
+const PROJECT_DISCOVERY_CACHE_TTL_MS = 5 * 60 * 1000;
 const REPOSITORY_REMOTE_HEADS_QUERY = `
   query RepositoryRemoteHeads($ids: [ID!]!) {
     nodes(ids: $ids) {
@@ -42,6 +45,7 @@ const REPOSITORY_REMOTE_HEADS_QUERY = `
     }
   }
 `;
+const PROJECT_LISTING_CACHE = new Map();
 
 function authHeaders(token) {
   return {
@@ -59,6 +63,135 @@ function chunk(items, chunkSize) {
     chunks.push(items.slice(index, index + chunkSize));
   }
   return chunks;
+}
+
+function repoCacheKey(fullName) {
+  return normalizeRepositoryKey(fullName);
+}
+
+function getInstallationProjectCache(installationId) {
+  const cacheKey = String(installationId);
+  if (!PROJECT_LISTING_CACHE.has(cacheKey)) {
+    PROJECT_LISTING_CACHE.set(cacheKey, new Map());
+  }
+  return PROJECT_LISTING_CACHE.get(cacheKey);
+}
+
+function pruneInstallationProjectCache(installationId, repositories) {
+  const cache = getInstallationProjectCache(installationId);
+  const liveKeys = new Set(repositories.map((repository) => repoCacheKey(repository.full_name)));
+  for (const key of cache.keys()) {
+    if (!liveKeys.has(key)) {
+      cache.delete(key);
+    }
+  }
+  return cache;
+}
+
+function loadCachedDiscovery(cache, fullName) {
+  const entry = cache.get(repoCacheKey(fullName));
+  if (!entry) {
+    return null;
+  }
+
+  const checkedAt = Number(entry.discoveryCheckedAt || 0);
+  if (!Number.isFinite(checkedAt) || Date.now() - checkedAt > PROJECT_DISCOVERY_CACHE_TTL_MS) {
+    return null;
+  }
+
+  return entry.isProject === true || entry.isProject === false
+    ? { isProject: entry.isProject }
+    : null;
+}
+
+function saveCachedDiscovery(cache, fullName, isProject) {
+  const key = repoCacheKey(fullName);
+  const entry = cache.get(key) || {};
+  cache.set(key, {
+    ...entry,
+    isProject: isProject === true,
+    discoveryCheckedAt: Date.now(),
+  });
+}
+
+function loadCachedProjectMetadata(cache, fullName, remoteHeadOid) {
+  const entry = cache.get(repoCacheKey(fullName));
+  const metadata = entry?.projectMetadata;
+  if (!metadata) {
+    return null;
+  }
+
+  const expectedHead = typeof remoteHeadOid === "string" && remoteHeadOid.trim()
+    ? remoteHeadOid.trim()
+    : null;
+  const cachedHead = typeof metadata.remoteHeadOid === "string" && metadata.remoteHeadOid.trim()
+    ? metadata.remoteHeadOid.trim()
+    : null;
+
+  if (cachedHead !== expectedHead) {
+    return null;
+  }
+
+  if (
+    typeof metadata.projectId !== "string" ||
+    !metadata.projectId.trim() ||
+    typeof metadata.title !== "string" ||
+    !metadata.title.trim()
+  ) {
+    return null;
+  }
+
+  return {
+    projectId: metadata.projectId,
+    title: metadata.title,
+    status:
+      metadata.status === GNOSIS_TMS_REPO_STATUS_DELETED
+        ? GNOSIS_TMS_REPO_STATUS_DELETED
+        : GNOSIS_TMS_REPO_STATUS_ACTIVE,
+  };
+}
+
+function saveCachedProjectMetadata(cache, fullName, remoteHeadOid, projectIdentity) {
+  if (!projectIdentity?.projectId || !projectIdentity?.title) {
+    return;
+  }
+
+  const key = repoCacheKey(fullName);
+  const entry = cache.get(key) || {};
+  cache.set(key, {
+    ...entry,
+    projectMetadata: {
+      projectId: projectIdentity.projectId,
+      title: projectIdentity.title,
+      status:
+        projectIdentity.status === GNOSIS_TMS_REPO_STATUS_DELETED
+          ? GNOSIS_TMS_REPO_STATUS_DELETED
+          : GNOSIS_TMS_REPO_STATUS_ACTIVE,
+      remoteHeadOid:
+        typeof remoteHeadOid === "string" && remoteHeadOid.trim() ? remoteHeadOid.trim() : null,
+    },
+  });
+}
+
+async function mapWithConcurrency(items, concurrency, mapper) {
+  if (!Array.isArray(items) || items.length === 0) {
+    return [];
+  }
+
+  const results = new Array(items.length);
+  let nextIndex = 0;
+
+  async function worker() {
+    while (nextIndex < items.length) {
+      const currentIndex = nextIndex;
+      nextIndex += 1;
+      results[currentIndex] = await mapper(items[currentIndex], currentIndex);
+    }
+  }
+
+  const workerCount = Math.max(1, Math.min(concurrency, items.length));
+  await Promise.all(Array.from({ length: workerCount }, () => worker()));
+  return results;
 }
 
 function projectFromRepository(
@@ -150,33 +283,59 @@ export async function listGnosisProjectsForInstallation(installationId, brokerSe
   const installationToken = await createInstallationAccessToken(installationId);
   const repositories = await listInstallationRepositoriesRaw(installationToken);
   const remoteHeadsByRepoKey = await loadRepositoryRemoteHeadsMap(repositories, installationToken);
-  const projects = [];
+  const cache = pruneInstallationProjectCache(installationId, repositories);
+  const repositoryInfos = await mapWithConcurrency(
+    repositories,
+    PROJECT_DISCOVERY_CONCURRENCY,
+    async (repository) => {
+      const cachedDiscovery = loadCachedDiscovery(cache, repository.full_name);
+      if (cachedDiscovery) {
+        return {
+          repository,
+          isProject: cachedDiscovery.isProject,
+          legacyStatus: null,
+        };
+      }
 
-  for (const repository of repositories) {
-    const properties = await getRepositoryProperties(repository.full_name, installationToken);
-    const isProject = isProjectRepository(properties);
-    const isDeleted = isSoftDeletedRepository(properties);
-
-    if (!isProject) {
-      continue;
-    }
-
-    let projectIdentity = null;
-    try {
-      projectIdentity = await loadProjectIdentity(repository.full_name, installationToken);
-    } catch {}
-
-    projects.push(
-      projectFromRepository(
+      const properties = await getRepositoryProperties(repository.full_name, installationToken);
+      const isProject = isProjectRepository(properties);
+      const legacyStatus = isSoftDeletedRepository(properties)
+        ? GNOSIS_TMS_REPO_STATUS_DELETED
+        : GNOSIS_TMS_REPO_STATUS_ACTIVE;
+      saveCachedDiscovery(cache, repository.full_name, isProject);
+      return {
         repository,
-        isDeleted ? GNOSIS_TMS_REPO_STATUS_DELETED : GNOSIS_TMS_REPO_STATUS_ACTIVE,
-        projectIdentity,
-        remoteHeadsByRepoKey.get(normalizeRepositoryKey(repository.full_name)) || null,
-      ),
-    );
-  }
+        isProject,
+        legacyStatus,
+      };
+    },
+  );
 
-  return projects;
+  const projectInfos = repositoryInfos.filter((info) => info.isProject);
+  return mapWithConcurrency(
+    projectInfos,
+    PROJECT_METADATA_CONCURRENCY,
+    async ({ repository, legacyStatus }) => {
+      const remoteHead =
+        remoteHeadsByRepoKey.get(normalizeRepositoryKey(repository.full_name)) || null;
+      const remoteHeadOid = remoteHead?.defaultBranchHeadOid || null;
+      let projectIdentity = loadCachedProjectMetadata(cache, repository.full_name, remoteHeadOid);
+
+      if (!projectIdentity) {
+        try {
+          projectIdentity = await loadProjectIdentity(repository.full_name, installationToken);
+          saveCachedProjectMetadata(cache, repository.full_name, remoteHeadOid, projectIdentity);
+        } catch {}
+      }
+
+      return projectFromRepository(
+        repository,
+        projectIdentity?.status || legacyStatus || GNOSIS_TMS_REPO_STATUS_ACTIVE,
+        projectIdentity,
+        remoteHead,
+      );
+    },
+  );
 }
 
 export async function getInstallationGitTransportToken({ installationId, brokerSession }) {
@@ -226,7 +385,11 @@ export async function markGnosisProjectRepoDeleted({
 }) {
   await ensureInstallationAccess({ installationId, brokerSession, requireProjectAdmin: true });
   const installationToken = await createInstallationAccessToken(installationId);
-  await updateRepositoryStatus(orgLogin, repoName, GNOSIS_TMS_REPO_STATUS_DELETED, installationToken);
+  await updateProjectLifecycle(
+    `${orgLogin}/${repoName}`,
+    GNOSIS_TMS_REPO_STATUS_DELETED,
+    installationToken,
+  );
 }
 
 export async function restoreGnosisProjectRepo({
@@ -237,7 +400,11 @@ export async function restoreGnosisProjectRepo({
 }) {
   await ensureInstallationAccess({ installationId, brokerSession, requireProjectAdmin: true });
   const installationToken = await createInstallationAccessToken(installationId);
-  await updateRepositoryStatus(orgLogin, repoName, GNOSIS_TMS_REPO_STATUS_ACTIVE, installationToken);
+  await updateProjectLifecycle(
+    `${orgLogin}/${repoName}`,
+    GNOSIS_TMS_REPO_STATUS_ACTIVE,
+    installationToken,
+  );
 }
 
 export async function renameGnosisProjectRepo({
