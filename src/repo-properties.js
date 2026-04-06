@@ -1,7 +1,4 @@
 import {
-  GNOSIS_TMS_REPO_STATUS_ACTIVE,
-  GNOSIS_TMS_REPO_STATUS_DELETED,
-  GNOSIS_TMS_REPO_STATUS_PROPERTY_NAME,
   GNOSIS_TMS_REPO_TYPE_GLOSSARY,
   GNOSIS_TMS_REPO_TYPE_PROJECT,
   GNOSIS_TMS_REPO_TYPE_PROPERTY_NAME,
@@ -24,17 +21,6 @@ function createPropertySchemaPayload() {
         allowed_values: [
           GNOSIS_TMS_REPO_TYPE_PROJECT,
           GNOSIS_TMS_REPO_TYPE_GLOSSARY,
-        ],
-        values_editable_by: "org_actors",
-        required: false,
-      },
-      {
-        property_name: GNOSIS_TMS_REPO_STATUS_PROPERTY_NAME,
-        value_type: "single_select",
-        description: "Tracks whether a Gnosis TMS repository is active or soft deleted.",
-        allowed_values: [
-          GNOSIS_TMS_REPO_STATUS_ACTIVE,
-          GNOSIS_TMS_REPO_STATUS_DELETED,
         ],
         values_editable_by: "org_actors",
         required: false,
@@ -88,14 +74,6 @@ export function isProjectRepository(properties) {
   );
 }
 
-export function isSoftDeletedRepository(properties) {
-  return properties.some(
-    (property) =>
-      property.property_name === GNOSIS_TMS_REPO_STATUS_PROPERTY_NAME &&
-      propertyValueMatches(property.value, GNOSIS_TMS_REPO_STATUS_DELETED),
-  );
-}
-
 export async function assignInitialProjectProperties(orgLogin, repoName, installationToken) {
   try {
     await githubApi(`/repos/${orgLogin}/${repoName}/properties/values`, {
@@ -118,21 +96,6 @@ export async function assignInitialProjectProperties(orgLogin, repoName, install
     }
     throw error;
   }
-}
-
-export async function updateRepositoryStatus(orgLogin, repoName, nextStatus, installationToken) {
-  await githubApi(`/repos/${orgLogin}/${repoName}/properties/values`, {
-    method: "PATCH",
-    headers: authHeaders(installationToken),
-    body: JSON.stringify({
-      properties: [
-        {
-          property_name: GNOSIS_TMS_REPO_STATUS_PROPERTY_NAME,
-          value: nextStatus,
-        },
-      ],
-    }),
-  });
 }
 
 export async function deleteRepository(orgLogin, repoName, installationToken) {

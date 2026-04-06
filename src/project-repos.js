@@ -14,7 +14,6 @@ import {
   ensureRepositoryPropertiesSchema,
   getRepositoryProperties,
   isProjectRepository,
-  isSoftDeletedRepository,
 } from "./repo-properties.js";
 import {
   initializeProjectMetadata,
@@ -293,20 +292,15 @@ export async function listGnosisProjectsForInstallation(installationId, brokerSe
         return {
           repository,
           isProject: cachedDiscovery.isProject,
-          legacyStatus: null,
         };
       }
 
       const properties = await getRepositoryProperties(repository.full_name, installationToken);
       const isProject = isProjectRepository(properties);
-      const legacyStatus = isSoftDeletedRepository(properties)
-        ? GNOSIS_TMS_REPO_STATUS_DELETED
-        : GNOSIS_TMS_REPO_STATUS_ACTIVE;
       saveCachedDiscovery(cache, repository.full_name, isProject);
       return {
         repository,
         isProject,
-        legacyStatus,
       };
     },
   );
@@ -315,7 +309,7 @@ export async function listGnosisProjectsForInstallation(installationId, brokerSe
   return mapWithConcurrency(
     projectInfos,
     PROJECT_METADATA_CONCURRENCY,
-    async ({ repository, legacyStatus }) => {
+    async ({ repository }) => {
       const remoteHead =
         remoteHeadsByRepoKey.get(normalizeRepositoryKey(repository.full_name)) || null;
       const remoteHeadOid = remoteHead?.defaultBranchHeadOid || null;
@@ -330,7 +324,7 @@ export async function listGnosisProjectsForInstallation(installationId, brokerSe
 
       return projectFromRepository(
         repository,
-        projectIdentity?.status || legacyStatus || GNOSIS_TMS_REPO_STATUS_ACTIVE,
+        projectIdentity?.status || GNOSIS_TMS_REPO_STATUS_ACTIVE,
         projectIdentity,
         remoteHead,
       );
