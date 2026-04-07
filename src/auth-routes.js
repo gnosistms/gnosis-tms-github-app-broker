@@ -4,6 +4,7 @@ import {
   decodeBrokerOauthState,
   exchangeGithubOauthCode,
   loadGithubUser,
+  refreshBrokerSessionForGithubUser,
   revokeBrokerSessionFromHeader,
   validateDesktopRedirectUri,
 } from "./broker-auth.js";
@@ -41,9 +42,9 @@ export function registerAuthRoutes(app, { renderRedirectPage }) {
     }
 
     const decodedState = decodeBrokerOauthState(state);
-    const accessToken = await exchangeGithubOauthCode(request, code);
-    const user = await loadGithubUser(accessToken);
-    const sessionToken = createBrokerSessionForGithubUser(accessToken, user);
+    const tokenPayload = await exchangeGithubOauthCode(request, code);
+    const user = await loadGithubUser(tokenPayload.access_token);
+    const sessionToken = createBrokerSessionForGithubUser(tokenPayload, user);
 
     const redirectUrl = new URL(decodedState.desktopRedirectUri);
     redirectUrl.searchParams.set("state", decodedState.desktopState);
@@ -72,6 +73,16 @@ export function registerAuthRoutes(app, { renderRedirectPage }) {
       avatarUrl: request.brokerSession.user.avatarUrl || null,
     });
   });
+
+  app.post("/api/auth/refresh", ensureBrokerSession, asyncJsonRoute(async (request, response) => {
+    const refreshedSession = await refreshBrokerSessionForGithubUser(request.brokerSession);
+    response.json({
+      sessionToken: refreshedSession.sessionToken,
+      login: refreshedSession.user.login,
+      name: refreshedSession.user.name || null,
+      avatarUrl: refreshedSession.user.avatarUrl || null,
+    });
+  }));
 
   app.get("/api/auth/organizations", ensureBrokerSession, asyncJsonRoute(async (request, response) => {
     response.json(await listAuthorizedOrganizations(request.brokerSession));

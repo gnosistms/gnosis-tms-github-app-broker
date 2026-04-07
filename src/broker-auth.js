@@ -22,19 +22,34 @@ export function buildGithubOauthStartUrl(_request, desktopRedirectUri, desktopSt
 }
 
 export async function exchangeGithubOauthCode(_request, code) {
+  return requestGithubUserToken({
+    client_id: config.githubAppClientId,
+    client_secret: config.githubAppClientSecret,
+    code,
+    redirect_uri: githubOauthCallbackUrl(),
+  });
+}
+
+export async function refreshGithubUserAccessToken(refreshToken) {
+  return requestGithubUserToken({
+    client_id: config.githubAppClientId,
+    client_secret: config.githubAppClientSecret,
+    grant_type: "refresh_token",
+    refresh_token: String(refreshToken || "").trim(),
+  });
+}
+
+async function requestGithubUserToken(params) {
   const response = await fetch("https://github.com/login/oauth/access_token", {
     method: "POST",
     headers: {
       Accept: "application/json",
-      "Content-Type": "application/json",
+      "Content-Type": "application/x-www-form-urlencoded",
       "User-Agent": "gnosis-tms-github-app-broker",
     },
-    body: JSON.stringify({
-      client_id: config.githubAppClientId,
-      client_secret: config.githubAppClientSecret,
-      code,
-      redirect_uri: githubOauthCallbackUrl(),
-    }),
+    body: new URLSearchParams(
+      Object.entries(params).filter(([, value]) => value !== undefined && value !== null),
+    ).toString(),
   });
 
   const payload = await response.json();
@@ -42,7 +57,7 @@ export async function exchangeGithubOauthCode(_request, code) {
     throw new Error(payload.error_description || payload.error || "GitHub OAuth exchange failed.");
   }
 
-  return payload.access_token;
+  return payload;
 }
 
 export async function loadGithubUser(accessToken) {
@@ -69,10 +84,29 @@ export async function loadGithubUser(accessToken) {
 }
 
 export function createBrokerSessionForGithubUser(accessToken, user) {
+  const accessTokenExpiresAt = resolveRelativeExpiry(accessToken?.expires_in);
+  const refreshTokenExpiresAt = resolveRelativeExpiry(accessToken?.refresh_token_expires_in);
   return createBrokerSession({
-    accessToken,
+    accessToken: accessToken.access_token,
+    accessTokenExpiresAt,
+    refreshToken: accessToken.refresh_token || null,
+    refreshTokenExpiresAt,
     user,
   });
+}
+
+export async function refreshBrokerSessionForGithubUser(brokerSession) {
+  const refreshToken = String(brokerSession?.refreshToken || "").trim();
+  if (!refreshToken) {
+    throw new Error("This GitHub session cannot be refreshed. Please sign in again.");
+  }
+
+  const tokenPayload = await refreshGithubUserAccessToken(refreshToken);
+  const user = await loadGithubUser(tokenPayload.access_token);
+  return {
+    sessionToken: createBrokerSessionForGithubUser(tokenPayload, user),
+    user,
+  };
 }
 
 export function decodeBrokerOauthState(state) {
@@ -99,4 +133,13 @@ export function revokeBrokerSessionFromHeader(request) {
   }
 
   destroyBrokerSession(header.slice("Bearer ".length).trim());
+}
+
+function resolveRelativeExpiry(seconds) {
+  const parsed = Number(seconds);
+  if (!Number.isFinite(parsed) || parsed <= 0) {
+    return null;
+  }
+
+  return Date.now() + parsed * 1000;
 }
