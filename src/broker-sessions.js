@@ -2,7 +2,7 @@ import crypto from "node:crypto";
 
 import { config } from "./config.js";
 
-const SESSION_TTL_MS = 1000 * 60 * 60 * 24 * 7;
+const SESSION_TTL_MS = 1000 * 60 * 60 * 24 * config.brokerSessionTtlDays;
 const SESSION_ALGORITHM = "aes-256-gcm";
 const IV_BYTES = 12;
 const KEY_BYTES = 32;

@@ -14,6 +14,15 @@ function optional(name, fallback = "") {
   return process.env[name]?.trim() || fallback;
 }
 
+function parsePositiveInteger(name, fallback) {
+  const raw = optional(name, String(fallback));
+  const value = Number.parseInt(raw, 10);
+  if (!Number.isFinite(value) || value <= 0) {
+    throw new Error(`Environment variable ${name} must be a positive integer.`);
+  }
+  return value;
+}
+
 function parseAllowedDesktopPrefixes(value) {
   return value
     .split(",")
@@ -32,6 +41,7 @@ export const config = {
   githubAppPrivateKey: required("GITHUB_APP_PRIVATE_KEY").replace(/\\n/g, "\n"),
   brokerStateSecret: required("BROKER_STATE_SECRET"),
   brokerToken: optional("BROKER_TOKEN"),
+  brokerSessionTtlDays: parsePositiveInteger("BROKER_SESSION_TTL_DAYS", 90),
   allowedDesktopCallbackPrefixes: parseAllowedDesktopPrefixes(
     optional("ALLOWED_DESKTOP_CALLBACK_PREFIXES", "http://127.0.0.1:45873/"),
   ),

@@ -41,6 +41,7 @@ The GitHub App installation flow still works through:
 
 - `PORT`
 - `BROKER_TOKEN`
+- `BROKER_SESSION_TTL_DAYS` (defaults to `90`)
 - `ALLOWED_DESKTOP_CALLBACK_PREFIXES`
 
 ## Local development
@@ -101,9 +102,9 @@ The broker authorizes requests like this:
 - organization installations: the signed-in GitHub user must be an active member of the org
 - mutating org actions: the signed-in GitHub user must be an org admin
 
-Broker sessions are currently stored in memory. That is acceptable for this test app, but for
-production you should move them to durable shared storage if you need restart resilience or
-multi-instance scaling.
+Broker sessions are encrypted self-contained bearer tokens. The desktop app stores them locally,
+and the broker validates/decrypts them on each request. If you need shorter or longer sign-in
+windows, adjust `BROKER_SESSION_TTL_DAYS`.
 
 ## DigitalOcean deployment
 
