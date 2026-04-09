@@ -3,6 +3,7 @@ import { pathToFileURL } from "node:url";
 
 import { config } from "./config.js";
 import { registerAuthRoutes } from "./auth-routes.js";
+import { registerGlossaryRoutes } from "./glossary-routes.js";
 import { registerInstallRoutes } from "./install-routes.js";
 import { registerProjectRoutes } from "./project-routes.js";
 
@@ -22,6 +23,7 @@ export function createApp() {
   registerAuthRoutes(app, { renderRedirectPage });
   registerInstallRoutes(app, { renderRedirectPage });
   registerProjectRoutes(app);
+  registerGlossaryRoutes(app);
 
   return app;
 }
