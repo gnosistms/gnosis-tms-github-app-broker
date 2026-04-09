@@ -78,8 +78,11 @@ export async function loadProjectIdentity(fullName, installationToken) {
   return { projectId, title, status };
 }
 
-export async function initializeProjectMetadata(fullName, projectTitle, installationToken) {
-  const projectId = crypto.randomUUID();
+export async function initializeProjectMetadata(fullName, projectTitle, projectIdInput, installationToken) {
+  const projectId =
+    typeof projectIdInput === "string" && projectIdInput.trim()
+      ? projectIdInput.trim()
+      : crypto.randomUUID();
   const projectJson = JSON.stringify(
     {
       project_id: projectId,

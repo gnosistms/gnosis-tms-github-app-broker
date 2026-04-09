@@ -21,6 +21,10 @@ import {
   renameProjectMetadata,
   updateProjectLifecycle,
 } from "./project-metadata.js";
+import {
+  deleteProjectMetadataRecord as deleteProjectTeamMetadataRecord,
+  upsertProjectMetadataRecord as upsertProjectTeamMetadataRecord,
+} from "./team-metadata-repo.js";
 
 const INSTALLATION_REPOSITORIES_PER_PAGE = 100;
 const PROJECT_METADATA_CONCURRENCY = 10;
@@ -263,6 +267,7 @@ function projectFromRepository(
   return {
     id: projectIdentity?.projectId || String(repository.id),
     repoId: repository.id,
+    nodeId: repository.node_id || null,
     name: repository.name,
     title: projectIdentity?.title || repository.name,
     status,
@@ -394,6 +399,7 @@ export async function createGnosisProjectRepo({
   orgLogin,
   repoName,
   projectTitle,
+  projectId,
   brokerSession,
 }) {
   const installationToken = await createInstallationAccessToken(installationId);
@@ -414,6 +420,7 @@ export async function createGnosisProjectRepo({
   const projectIdentity = await initializeProjectMetadata(
     repository.full_name,
     projectTitle,
+    projectId,
     installationToken,
   );
   return projectFromRepository(repository, GNOSIS_TMS_REPO_STATUS_ACTIVE, {
@@ -472,4 +479,33 @@ export async function permanentlyDeleteGnosisProjectRepo({
   await ensureInstallationAccess({ installationId, brokerSession, requireOwner: true });
   const installationToken = await createInstallationAccessToken(installationId);
   await deleteRepository(orgLogin, repoName, installationToken);
+}
+
+export async function upsertGnosisProjectMetadataRecord({
+  installationId,
+  orgLogin,
+  brokerSession,
+  ...input
+}) {
+  await ensureInstallationAccess({ installationId, brokerSession, requireProjectAdmin: true });
+  await upsertProjectTeamMetadataRecord({
+    installationId,
+    orgLogin,
+    brokerSession,
+    ...input,
+  });
+}
+
+export async function deleteGnosisProjectMetadataRecord({
+  installationId,
+  orgLogin,
+  projectId,
+  brokerSession,
+}) {
+  await ensureInstallationAccess({ installationId, brokerSession, requireProjectAdmin: true });
+  await deleteProjectTeamMetadataRecord({
+    installationId,
+    orgLogin,
+    projectId,
+  });
 }

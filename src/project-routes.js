@@ -3,6 +3,7 @@ import express from "express";
 import { ensureBrokerSession } from "./security.js";
 import {
   createGnosisProjectRepo,
+  deleteGnosisProjectMetadataRecord,
   ensureGnosisRepoPropertiesSchema,
   getInstallationGitTransportToken,
   listGnosisProjectsForInstallation,
@@ -10,6 +11,7 @@ import {
   permanentlyDeleteGnosisProjectRepo,
   renameGnosisProjectRepo,
   restoreGnosisProjectRepo,
+  upsertGnosisProjectMetadataRecord,
 } from "./project-repos.js";
 import { asyncJsonRoute, parseInstallationId } from "./route-helpers.js";
 
@@ -78,6 +80,19 @@ export function registerProjectRoutes(app) {
   );
 
   app.patch(
+    "/api/github-app/gnosis-projects/metadata-record",
+    ensureBrokerSession,
+    express.json(),
+    asyncJsonRoute(async (request, response) => {
+      await upsertGnosisProjectMetadataRecord({
+        ...(request.body || {}),
+        brokerSession: request.brokerSession,
+      });
+      response.status(204).end();
+    }),
+  );
+
+  app.patch(
     "/api/github-app/gnosis-projects/delete-marker",
     ensureBrokerSession,
     express.json(),
@@ -96,6 +111,19 @@ export function registerProjectRoutes(app) {
     express.json(),
     asyncJsonRoute(async (request, response) => {
       await restoreGnosisProjectRepo({
+        ...(request.body || {}),
+        brokerSession: request.brokerSession,
+      });
+      response.status(204).end();
+    }),
+  );
+
+  app.delete(
+    "/api/github-app/gnosis-projects/metadata-record",
+    ensureBrokerSession,
+    express.json(),
+    asyncJsonRoute(async (request, response) => {
+      await deleteGnosisProjectMetadataRecord({
         ...(request.body || {}),
         brokerSession: request.brokerSession,
       });

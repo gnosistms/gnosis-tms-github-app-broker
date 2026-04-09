@@ -11,6 +11,7 @@ import {
   isGlossaryRepository,
   listOrganizationRepositoryPropertyValues,
 } from "./repo-properties.js";
+import { upsertGlossaryMetadataRecord as upsertGlossaryTeamMetadataRecord } from "./team-metadata-repo.js";
 
 const INSTALLATION_REPOSITORIES_PER_PAGE = 100;
 const REPOSITORY_REMOTE_HEADS_QUERY = `
@@ -142,6 +143,7 @@ function deriveOrgLoginFromRepositories(repositories) {
 function glossaryFromRepository(repository, remoteHead = null) {
   return {
     repoId: repository.id,
+    nodeId: repository.node_id || null,
     name: repository.name,
     fullName: repository.full_name,
     htmlUrl: repository.html_url || null,
@@ -261,4 +263,19 @@ export async function permanentlyDeleteGnosisGlossaryRepo({
   await ensureInstallationAccess({ installationId, brokerSession, requireOwner: true });
   const installationToken = await createInstallationAccessToken(installationId);
   await deleteRepository(orgLogin, repoName, installationToken);
+}
+
+export async function upsertGnosisGlossaryMetadataRecord({
+  installationId,
+  orgLogin,
+  brokerSession,
+  ...input
+}) {
+  await ensureInstallationAccess({ installationId, brokerSession, requireProjectAdmin: true });
+  await upsertGlossaryTeamMetadataRecord({
+    installationId,
+    orgLogin,
+    brokerSession,
+    ...input,
+  });
 }

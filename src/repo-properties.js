@@ -151,8 +151,15 @@ export async function assignInitialGlossaryProperties(orgLogin, repoName, instal
 }
 
 export async function deleteRepository(orgLogin, repoName, installationToken) {
-  await githubApi(`/repos/${orgLogin}/${repoName}`, {
-    method: "DELETE",
-    headers: authHeaders(installationToken),
-  });
+  try {
+    await githubApi(`/repos/${orgLogin}/${repoName}`, {
+      method: "DELETE",
+      headers: authHeaders(installationToken),
+    });
+  } catch (error) {
+    if (error?.githubStatus === 404) {
+      return;
+    }
+    throw error;
+  }
 }

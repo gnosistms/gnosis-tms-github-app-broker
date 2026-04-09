@@ -75,6 +75,23 @@ async function putRepositoryFile({
   });
 }
 
+async function deleteRepositoryFile({
+  fullName,
+  path,
+  message,
+  installationToken,
+  sha,
+}) {
+  await githubApi(`/repos/${fullName}/contents/${path}`, {
+    method: "DELETE",
+    headers: authHeaders(installationToken),
+    body: JSON.stringify({
+      message,
+      sha,
+    }),
+  });
+}
+
 async function ensureRepositoryFile({
   fullName,
   path,
@@ -151,6 +168,171 @@ function normalizeMetadataRepoPayload(repository, manifest) {
   };
 }
 
+function normalizeOptionalString(value) {
+  return typeof value === "string" && value.trim() ? value.trim() : null;
+}
+
+function normalizeOptionalNumber(value) {
+  return Number.isFinite(value) ? Number(value) : null;
+}
+
+function normalizeStringList(values = []) {
+  return [...new Set(
+    (Array.isArray(values) ? values : [])
+      .map((value) => normalizeOptionalString(value))
+      .filter(Boolean),
+  )];
+}
+
+function normalizeLanguage(value, fallback = null) {
+  const code = normalizeOptionalString(value?.code);
+  const name = normalizeOptionalString(value?.name);
+  if (!code || !name) {
+    return fallback;
+  }
+  return { code, name };
+}
+
+function resourceRecordPath(kind, resourceId) {
+  return `resources/${kind === "project" ? "projects" : "glossaries"}/${resourceId}.json`;
+}
+
+async function loadTeamMetadataRepository({ installationId, orgLogin }) {
+  const installationToken = await createInstallationAccessToken(installationId);
+  const repositoryResponse = await githubApi(`/repos/${orgLogin}/${TEAM_METADATA_REPO_NAME}`, {
+    headers: authHeaders(installationToken),
+  });
+  const repository = await repositoryResponse.json();
+  const manifest = await getRepositoryFileJsonWithSha(
+    repository.full_name,
+    "manifest.json",
+    installationToken,
+  );
+
+  if (!manifest?.value || typeof manifest.value !== "object") {
+    throw new Error(`team-metadata manifest is missing or invalid for ${repository.full_name}.`);
+  }
+
+  return {
+    installationToken,
+    repository,
+    manifest: manifest.value,
+  };
+}
+
+function buildSharedMetadataRecord({
+  kind,
+  resourceId,
+  input,
+  existingValue = null,
+  actorLogin = null,
+}) {
+  const now = new Date().toISOString();
+  const current =
+    existingValue && typeof existingValue === "object" && !Array.isArray(existingValue)
+      ? existingValue
+      : {};
+  const currentRepoName = normalizeOptionalString(current.repoName);
+  const nextRepoName = normalizeOptionalString(input.repoName) ?? currentRepoName;
+  const title = normalizeOptionalString(input.title) ?? normalizeOptionalString(current.title);
+  if (!nextRepoName) {
+    throw new Error(`Could not determine the ${kind} repo name for team metadata.`);
+  }
+  if (!title) {
+    throw new Error(`Could not determine the ${kind} title for team metadata.`);
+  }
+
+  const previousRepoNames = normalizeStringList([
+    ...(Array.isArray(current.previousRepoNames) ? current.previousRepoNames : []),
+    ...(Array.isArray(input.previousRepoNames) ? input.previousRepoNames : []),
+    ...(currentRepoName && currentRepoName !== nextRepoName ? [currentRepoName] : []),
+  ]).filter((repoName) => repoName !== nextRepoName);
+
+  return {
+    id: resourceId,
+    kind,
+    title,
+    repoName: nextRepoName,
+    previousRepoNames,
+    githubRepoId:
+      normalizeOptionalNumber(input.githubRepoId) ?? normalizeOptionalNumber(current.githubRepoId),
+    githubNodeId:
+      normalizeOptionalString(input.githubNodeId) ?? normalizeOptionalString(current.githubNodeId),
+    fullName:
+      normalizeOptionalString(input.fullName) ?? normalizeOptionalString(current.fullName),
+    defaultBranch:
+      normalizeOptionalString(input.defaultBranch)
+      ?? normalizeOptionalString(current.defaultBranch)
+      ?? "main",
+    lifecycleState:
+      normalizeOptionalString(input.lifecycleState)
+      ?? normalizeOptionalString(current.lifecycleState)
+      ?? "active",
+    remoteState:
+      normalizeOptionalString(input.remoteState)
+      ?? normalizeOptionalString(current.remoteState)
+      ?? "pendingCreate",
+    recordState:
+      normalizeOptionalString(input.recordState)
+      ?? normalizeOptionalString(current.recordState)
+      ?? "live",
+    createdAt: normalizeOptionalString(current.createdAt) ?? now,
+    updatedAt: now,
+    deletedAt:
+      Object.prototype.hasOwnProperty.call(input, "deletedAt")
+        ? normalizeOptionalString(input.deletedAt)
+        : normalizeOptionalString(current.deletedAt),
+    createdBy: normalizeOptionalString(current.createdBy) ?? normalizeOptionalString(actorLogin),
+    updatedBy: normalizeOptionalString(actorLogin) ?? normalizeOptionalString(current.updatedBy),
+    deletedBy:
+      Object.prototype.hasOwnProperty.call(input, "deletedBy")
+        ? normalizeOptionalString(input.deletedBy)
+        : normalizeOptionalString(current.deletedBy),
+  };
+}
+
+function buildProjectMetadataRecord({ resourceId, input, existingValue, actorLogin }) {
+  const shared = buildSharedMetadataRecord({
+    kind: "project",
+    resourceId,
+    input,
+    existingValue,
+    actorLogin,
+  });
+
+  return {
+    ...shared,
+    chapterCount:
+      Number.isFinite(input.chapterCount)
+        ? Number(input.chapterCount)
+        : Number.isFinite(existingValue?.chapterCount)
+          ? Number(existingValue.chapterCount)
+          : 0,
+  };
+}
+
+function buildGlossaryMetadataRecord({ resourceId, input, existingValue, actorLogin }) {
+  const shared = buildSharedMetadataRecord({
+    kind: "glossary",
+    resourceId,
+    input,
+    existingValue,
+    actorLogin,
+  });
+
+  return {
+    ...shared,
+    sourceLanguage: normalizeLanguage(input.sourceLanguage, existingValue?.sourceLanguage ?? null),
+    targetLanguage: normalizeLanguage(input.targetLanguage, existingValue?.targetLanguage ?? null),
+    termCount:
+      Number.isFinite(input.termCount)
+        ? Number(input.termCount)
+        : Number.isFinite(existingValue?.termCount)
+          ? Number(existingValue.termCount)
+          : 0,
+  };
+}
+
 export async function ensureTeamMetadataRepo({ installationId, orgLogin }) {
   const installationToken = await createInstallationAccessToken(installationId);
   const repository = await createOrLoadTeamMetadataRepository(orgLogin, installationToken);
@@ -199,20 +381,115 @@ export async function ensureTeamMetadataRepo({ installationId, orgLogin }) {
 }
 
 export async function inspectTeamMetadataRepo({ installationId, orgLogin }) {
-  const installationToken = await createInstallationAccessToken(installationId);
-  const repositoryResponse = await githubApi(`/repos/${orgLogin}/${TEAM_METADATA_REPO_NAME}`, {
-    headers: authHeaders(installationToken),
-  });
-  const repository = await repositoryResponse.json();
-  const manifest = await getRepositoryFileJsonWithSha(
-    repository.full_name,
-    "manifest.json",
-    installationToken,
-  );
+  const { repository, manifest } = await loadTeamMetadataRepository({ installationId, orgLogin });
+  return normalizeMetadataRepoPayload(repository, manifest);
+}
 
-  if (!manifest?.value || typeof manifest.value !== "object") {
-    throw new Error(`team-metadata manifest is missing or invalid for ${repository.full_name}.`);
+export async function upsertProjectMetadataRecord({
+  installationId,
+  orgLogin,
+  brokerSession,
+  ...input
+}) {
+  const resourceId = normalizeOptionalString(input.projectId);
+  if (!resourceId) {
+    throw new Error("Could not determine which project metadata record to write.");
   }
 
-  return normalizeMetadataRepoPayload(repository, manifest.value);
+  const { installationToken, repository } = await loadTeamMetadataRepository({
+    installationId,
+    orgLogin,
+  });
+  const path = resourceRecordPath("project", resourceId);
+  const existingRecord = await getRepositoryFileJsonWithSha(
+    repository.full_name,
+    path,
+    installationToken,
+  );
+  const record = buildProjectMetadataRecord({
+    resourceId,
+    input,
+    existingValue: existingRecord?.value || null,
+    actorLogin: brokerSession?.user?.login ?? null,
+  });
+
+  await putRepositoryFile({
+    fullName: repository.full_name,
+    path,
+    message: existingRecord ? "Update project metadata record" : "Create project metadata record",
+    content: `${JSON.stringify(record, null, 2)}\n`,
+    installationToken,
+    sha: existingRecord?.sha || null,
+  });
+}
+
+export async function deleteProjectMetadataRecord({
+  installationId,
+  orgLogin,
+  projectId,
+}) {
+  const resourceId = normalizeOptionalString(projectId);
+  if (!resourceId) {
+    throw new Error("Could not determine which project metadata record to delete.");
+  }
+
+  const { installationToken, repository } = await loadTeamMetadataRepository({
+    installationId,
+    orgLogin,
+  });
+  const path = resourceRecordPath("project", resourceId);
+  const existingRecord = await getRepositoryFileJsonWithSha(
+    repository.full_name,
+    path,
+    installationToken,
+  );
+  if (!existingRecord?.sha) {
+    return;
+  }
+
+  await deleteRepositoryFile({
+    fullName: repository.full_name,
+    path,
+    message: "Delete project metadata record",
+    installationToken,
+    sha: existingRecord.sha,
+  });
+}
+
+export async function upsertGlossaryMetadataRecord({
+  installationId,
+  orgLogin,
+  brokerSession,
+  ...input
+}) {
+  const resourceId = normalizeOptionalString(input.glossaryId);
+  if (!resourceId) {
+    throw new Error("Could not determine which glossary metadata record to write.");
+  }
+
+  const { installationToken, repository } = await loadTeamMetadataRepository({
+    installationId,
+    orgLogin,
+  });
+  const path = resourceRecordPath("glossary", resourceId);
+  const existingRecord = await getRepositoryFileJsonWithSha(
+    repository.full_name,
+    path,
+    installationToken,
+  );
+  const record = buildGlossaryMetadataRecord({
+    resourceId,
+    input,
+    existingValue: existingRecord?.value || null,
+    actorLogin: brokerSession?.user?.login ?? null,
+  });
+
+  await putRepositoryFile({
+    fullName: repository.full_name,
+    path,
+    message: existingRecord ? "Update glossary metadata record" : "Create glossary metadata record",
+    content: `${JSON.stringify(record, null, 2)}\n`,
+    installationToken,
+    sha: existingRecord?.sha || null,
+  });
 }
