@@ -3,6 +3,7 @@ import express from "express";
 import { ensureBrokerSession } from "./security.js";
 import {
   createGnosisGlossaryRepo,
+  listGnosisGlossaryMetadataRecords,
   listGnosisGlossariesForInstallation,
   permanentlyDeleteGnosisGlossaryRepo,
   upsertGnosisGlossaryMetadataRecord,
@@ -18,6 +19,19 @@ export function registerGlossaryRoutes(app) {
         parseInstallationId(request.params.installationId),
         request.brokerSession,
       );
+      response.json(payload);
+    }),
+  );
+
+  app.get(
+    "/api/github-app/installations/:installationId/orgs/:orgLogin/gnosis-glossaries/metadata-records",
+    ensureBrokerSession,
+    asyncJsonRoute(async (request, response) => {
+      const payload = await listGnosisGlossaryMetadataRecords({
+        installationId: parseInstallationId(request.params.installationId),
+        orgLogin: request.params.orgLogin,
+        brokerSession: request.brokerSession,
+      });
       response.json(payload);
     }),
   );

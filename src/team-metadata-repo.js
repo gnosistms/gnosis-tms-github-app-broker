@@ -9,6 +9,21 @@ function authHeaders(token) {
   };
 }
 
+async function listRepositoryDirectory(fullName, path, installationToken) {
+  try {
+    const response = await githubApi(`/repos/${fullName}/contents/${path}`, {
+      headers: authHeaders(installationToken),
+    });
+    const payload = await response.json();
+    return Array.isArray(payload) ? payload : [];
+  } catch (error) {
+    if (error?.githubStatus === 404) {
+      return [];
+    }
+    throw error;
+  }
+}
+
 async function createOrLoadTeamMetadataRepository(orgLogin, installationToken) {
   try {
     const createResponse = await githubApi(`/orgs/${orgLogin}/repos`, {
@@ -197,6 +212,10 @@ function resourceRecordPath(kind, resourceId) {
   return `resources/${kind === "project" ? "projects" : "glossaries"}/${resourceId}.json`;
 }
 
+function resourceDirectoryPath(kind) {
+  return `resources/${kind === "project" ? "projects" : "glossaries"}`;
+}
+
 async function loadTeamMetadataRepository({ installationId, orgLogin }) {
   const installationToken = await createInstallationAccessToken(installationId);
   const repositoryResponse = await githubApi(`/repos/${orgLogin}/${TEAM_METADATA_REPO_NAME}`, {
@@ -331,6 +350,94 @@ function buildGlossaryMetadataRecord({ resourceId, input, existingValue, actorLo
           ? Number(existingValue.termCount)
           : 0,
   };
+}
+
+function normalizeSharedMetadataRecord(record, kind) {
+  if (!record || typeof record !== "object" || Array.isArray(record)) {
+    return null;
+  }
+
+  const id = normalizeOptionalString(record.id);
+  const title = normalizeOptionalString(record.title);
+  const repoName = normalizeOptionalString(record.repoName);
+  if (!id || !title || !repoName) {
+    return null;
+  }
+
+  return {
+    id,
+    kind,
+    title,
+    repoName,
+    previousRepoNames: normalizeStringList(record.previousRepoNames),
+    githubRepoId: normalizeOptionalNumber(record.githubRepoId),
+    githubNodeId: normalizeOptionalString(record.githubNodeId),
+    fullName: normalizeOptionalString(record.fullName),
+    defaultBranch: normalizeOptionalString(record.defaultBranch) ?? "main",
+    lifecycleState: normalizeOptionalString(record.lifecycleState) ?? "active",
+    remoteState: normalizeOptionalString(record.remoteState) ?? "pendingCreate",
+    recordState: normalizeOptionalString(record.recordState) ?? "live",
+    createdAt: normalizeOptionalString(record.createdAt),
+    updatedAt: normalizeOptionalString(record.updatedAt),
+    deletedAt: normalizeOptionalString(record.deletedAt),
+    createdBy: normalizeOptionalString(record.createdBy),
+    updatedBy: normalizeOptionalString(record.updatedBy),
+    deletedBy: normalizeOptionalString(record.deletedBy),
+  };
+}
+
+function normalizeProjectMetadataRecord(record) {
+  const shared = normalizeSharedMetadataRecord(record, "project");
+  if (!shared) {
+    return null;
+  }
+
+  return {
+    ...shared,
+    chapterCount: Number.isFinite(record.chapterCount) ? Number(record.chapterCount) : 0,
+  };
+}
+
+function normalizeGlossaryMetadataRecord(record) {
+  const shared = normalizeSharedMetadataRecord(record, "glossary");
+  if (!shared) {
+    return null;
+  }
+
+  return {
+    ...shared,
+    sourceLanguage: normalizeLanguage(record.sourceLanguage, null),
+    targetLanguage: normalizeLanguage(record.targetLanguage, null),
+    termCount: Number.isFinite(record.termCount) ? Number(record.termCount) : 0,
+  };
+}
+
+async function listMetadataRecords({ installationId, orgLogin, kind, normalizeRecord }) {
+  const { installationToken, repository } = await loadTeamMetadataRepository({
+    installationId,
+    orgLogin,
+  });
+  const directoryEntries = await listRepositoryDirectory(
+    repository.full_name,
+    resourceDirectoryPath(kind),
+    installationToken,
+  );
+  const jsonPaths = directoryEntries
+    .filter((entry) =>
+      entry?.type === "file"
+      && typeof entry.path === "string"
+      && entry.path.endsWith(".json")
+    )
+    .map((entry) => entry.path);
+
+  const records = await Promise.all(
+    jsonPaths.map(async (path) => {
+      const file = await getRepositoryFileJsonWithSha(repository.full_name, path, installationToken);
+      return normalizeRecord(file?.value);
+    }),
+  );
+
+  return records.filter(Boolean);
 }
 
 export async function ensureTeamMetadataRepo({ installationId, orgLogin }) {
@@ -491,5 +598,29 @@ export async function upsertGlossaryMetadataRecord({
     content: `${JSON.stringify(record, null, 2)}\n`,
     installationToken,
     sha: existingRecord?.sha || null,
+  });
+}
+
+export async function listProjectMetadataRecords({
+  installationId,
+  orgLogin,
+}) {
+  return listMetadataRecords({
+    installationId,
+    orgLogin,
+    kind: "project",
+    normalizeRecord: normalizeProjectMetadataRecord,
+  });
+}
+
+export async function listGlossaryMetadataRecords({
+  installationId,
+  orgLogin,
+}) {
+  return listMetadataRecords({
+    installationId,
+    orgLogin,
+    kind: "glossary",
+    normalizeRecord: normalizeGlossaryMetadataRecord,
   });
 }

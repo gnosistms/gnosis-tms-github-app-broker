@@ -23,6 +23,7 @@ import {
 } from "./project-metadata.js";
 import {
   deleteProjectMetadataRecord as deleteProjectTeamMetadataRecord,
+  listProjectMetadataRecords as listProjectTeamMetadataRecords,
   upsertProjectMetadataRecord as upsertProjectTeamMetadataRecord,
 } from "./team-metadata-repo.js";
 
@@ -507,5 +508,17 @@ export async function deleteGnosisProjectMetadataRecord({
     installationId,
     orgLogin,
     projectId,
+  });
+}
+
+export async function listGnosisProjectMetadataRecords({
+  installationId,
+  orgLogin,
+  brokerSession,
+}) {
+  await ensureInstallationAccess({ installationId, brokerSession, requireAdmin: false });
+  return listProjectTeamMetadataRecords({
+    installationId,
+    orgLogin,
   });
 }

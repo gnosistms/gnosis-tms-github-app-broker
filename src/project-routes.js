@@ -6,6 +6,7 @@ import {
   deleteGnosisProjectMetadataRecord,
   ensureGnosisRepoPropertiesSchema,
   getInstallationGitTransportToken,
+  listGnosisProjectMetadataRecords,
   listGnosisProjectsForInstallation,
   markGnosisProjectRepoDeleted,
   permanentlyDeleteGnosisProjectRepo,
@@ -37,6 +38,19 @@ export function registerProjectRoutes(app) {
         parseInstallationId(request.params.installationId),
         request.brokerSession,
       );
+      response.json(payload);
+    }),
+  );
+
+  app.get(
+    "/api/github-app/installations/:installationId/orgs/:orgLogin/gnosis-projects/metadata-records",
+    ensureBrokerSession,
+    asyncJsonRoute(async (request, response) => {
+      const payload = await listGnosisProjectMetadataRecords({
+        installationId: parseInstallationId(request.params.installationId),
+        orgLogin: request.params.orgLogin,
+        brokerSession: request.brokerSession,
+      });
       response.json(payload);
     }),
   );

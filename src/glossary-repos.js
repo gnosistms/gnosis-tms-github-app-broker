@@ -11,7 +11,10 @@ import {
   isGlossaryRepository,
   listOrganizationRepositoryPropertyValues,
 } from "./repo-properties.js";
-import { upsertGlossaryMetadataRecord as upsertGlossaryTeamMetadataRecord } from "./team-metadata-repo.js";
+import {
+  listGlossaryMetadataRecords as listGlossaryTeamMetadataRecords,
+  upsertGlossaryMetadataRecord as upsertGlossaryTeamMetadataRecord,
+} from "./team-metadata-repo.js";
 
 const INSTALLATION_REPOSITORIES_PER_PAGE = 100;
 const REPOSITORY_REMOTE_HEADS_QUERY = `
@@ -263,6 +266,18 @@ export async function permanentlyDeleteGnosisGlossaryRepo({
   await ensureInstallationAccess({ installationId, brokerSession, requireOwner: true });
   const installationToken = await createInstallationAccessToken(installationId);
   await deleteRepository(orgLogin, repoName, installationToken);
+}
+
+export async function listGnosisGlossaryMetadataRecords({
+  installationId,
+  orgLogin,
+  brokerSession,
+}) {
+  await ensureInstallationAccess({ installationId, brokerSession, requireAdmin: false });
+  return listGlossaryTeamMetadataRecords({
+    installationId,
+    orgLogin,
+  });
 }
 
 export async function upsertGnosisGlossaryMetadataRecord({
