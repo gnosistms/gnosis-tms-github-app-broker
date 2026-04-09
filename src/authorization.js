@@ -8,6 +8,7 @@ import {
   listOrganizationAdminTeamMembers,
   normalizeGithubLogin,
 } from "./installation-access.js";
+import { ensureTeamMetadataRepo, inspectTeamMetadataRepo } from "./team-metadata-repo.js";
 
 export async function configureOrganizationForGnosis({
   installationId,
@@ -33,6 +34,28 @@ export async function configureOrganizationForGnosis({
     installationId,
     orgLogin,
     brokerSession,
+  });
+
+  await ensureTeamMetadataRepo({
+    installationId,
+    orgLogin,
+  });
+}
+
+export async function inspectTeamMetadataForOrganization({
+  installationId,
+  orgLogin,
+  brokerSession,
+}) {
+  await ensureInstallationAccess({
+    installationId,
+    brokerSession,
+    requireAdmin: false,
+  });
+
+  return inspectTeamMetadataRepo({
+    installationId,
+    orgLogin,
   });
 }
 

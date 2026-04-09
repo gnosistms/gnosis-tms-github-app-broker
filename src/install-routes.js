@@ -8,6 +8,7 @@ import { ensureInstallationAccess, getInstallationAccessDetails } from "./instal
 import {
   addOrganizationAdminForInstallation,
   configureOrganizationForGnosis,
+  inspectTeamMetadataForOrganization,
   inviteUserToOrganizationForInstallation,
   listAccessibleInstallations,
   listInstallationMembers,
@@ -187,6 +188,20 @@ export function registerInstallRoutes(app, { renderRedirectPage }) {
         brokerSession: request.brokerSession,
       });
       response.status(204).end();
+    }),
+  );
+
+  app.get(
+    "/api/github-app/installations/:installationId/orgs/:orgLogin/team-metadata",
+    ensureBrokerSession,
+    asyncJsonRoute(async (request, response) => {
+      response.json(
+        await inspectTeamMetadataForOrganization({
+          installationId: parseInstallationId(request.params.installationId),
+          orgLogin: request.params.orgLogin,
+          brokerSession: request.brokerSession,
+        }),
+      );
     }),
   );
 
