@@ -10,6 +10,7 @@ import {
 } from "./github-app.js";
 import {
   assignInitialProjectProperties,
+  describeRepositoryPropertiesSchemaFailure,
   deleteRepository,
   ensureRepositoryPropertiesSchema,
   isProjectRepository,
@@ -338,10 +339,18 @@ export async function ensureGnosisRepoPropertiesSchema({
   orgLogin,
   brokerSession,
 }) {
-  await ensureInstallationAccess({ installationId, brokerSession, requireOwner: true });
+  const installation = await ensureInstallationAccess({ installationId, brokerSession, requireOwner: true });
   const installationToken = await createInstallationAccessToken(installationId);
 
-  await ensureRepositoryPropertiesSchema(orgLogin, installationToken);
+  try {
+    await ensureRepositoryPropertiesSchema(orgLogin, installationToken);
+  } catch (error) {
+    throw new Error(describeRepositoryPropertiesSchemaFailure(error, {
+      orgLogin,
+      accountType: installation?.accountType ?? "",
+      permissions: installation?.permissions ?? {},
+    }));
+  }
 }
 
 export async function listGnosisProjectsForInstallation(installationId, brokerSession) {
