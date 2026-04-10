@@ -2,6 +2,7 @@ import express from "express";
 
 import { ensureBrokerSession } from "./security.js";
 import {
+  deleteGnosisGlossaryMetadataRecord,
   createGnosisGlossaryRepo,
   listGnosisGlossaryMetadataRecords,
   listGnosisGlossariesForInstallation,
@@ -55,6 +56,19 @@ export function registerGlossaryRoutes(app) {
     express.json(),
     asyncJsonRoute(async (request, response) => {
       await upsertGnosisGlossaryMetadataRecord({
+        ...(request.body || {}),
+        brokerSession: request.brokerSession,
+      });
+      response.status(204).end();
+    }),
+  );
+
+  app.delete(
+    "/api/github-app/gnosis-glossaries/metadata-record",
+    ensureBrokerSession,
+    express.json(),
+    asyncJsonRoute(async (request, response) => {
+      await deleteGnosisGlossaryMetadataRecord({
         ...(request.body || {}),
         brokerSession: request.brokerSession,
       });

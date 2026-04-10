@@ -563,6 +563,39 @@ export async function deleteProjectMetadataRecord({
   });
 }
 
+export async function deleteGlossaryMetadataRecord({
+  installationId,
+  orgLogin,
+  glossaryId,
+}) {
+  const resourceId = normalizeOptionalString(glossaryId);
+  if (!resourceId) {
+    throw new Error("Could not determine which glossary metadata record to delete.");
+  }
+
+  const { installationToken, repository } = await loadTeamMetadataRepository({
+    installationId,
+    orgLogin,
+  });
+  const path = resourceRecordPath("glossary", resourceId);
+  const existingRecord = await getRepositoryFileJsonWithSha(
+    repository.full_name,
+    path,
+    installationToken,
+  );
+  if (!existingRecord?.sha) {
+    return;
+  }
+
+  await deleteRepositoryFile({
+    fullName: repository.full_name,
+    path,
+    message: "Delete glossary metadata record",
+    installationToken,
+    sha: existingRecord.sha,
+  });
+}
+
 export async function upsertGlossaryMetadataRecord({
   installationId,
   orgLogin,

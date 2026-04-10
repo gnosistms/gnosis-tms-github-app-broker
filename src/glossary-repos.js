@@ -12,6 +12,7 @@ import {
   listOrganizationRepositoryPropertyValues,
 } from "./repo-properties.js";
 import {
+  deleteGlossaryMetadataRecord as deleteGlossaryTeamMetadataRecord,
   listGlossaryMetadataRecords as listGlossaryTeamMetadataRecords,
   upsertGlossaryMetadataRecord as upsertGlossaryTeamMetadataRecord,
 } from "./team-metadata-repo.js";
@@ -292,5 +293,19 @@ export async function upsertGnosisGlossaryMetadataRecord({
     orgLogin,
     brokerSession,
     ...input,
+  });
+}
+
+export async function deleteGnosisGlossaryMetadataRecord({
+  installationId,
+  orgLogin,
+  glossaryId,
+  brokerSession,
+}) {
+  await ensureInstallationAccess({ installationId, brokerSession, requireProjectAdmin: true });
+  await deleteGlossaryTeamMetadataRecord({
+    installationId,
+    orgLogin,
+    glossaryId,
   });
 }
