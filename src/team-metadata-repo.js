@@ -33,6 +33,7 @@ async function createOrLoadTeamMetadataRepository(orgLogin, installationToken) {
         name: TEAM_METADATA_REPO_NAME,
         private: true,
         description: "Gnosis TMS team metadata",
+        auto_init: true,
       }),
     });
     return createResponse.json();
@@ -79,15 +80,21 @@ async function putRepositoryFile({
   installationToken,
   sha = null,
 }) {
-  await githubApi(`/repos/${fullName}/contents/${path}`, {
-    method: "PUT",
-    headers: authHeaders(installationToken),
-    body: JSON.stringify({
-      message,
-      content: Buffer.from(content, "utf8").toString("base64"),
-      ...(sha ? { sha } : {}),
-    }),
-  });
+  try {
+    await githubApi(`/repos/${fullName}/contents/${path}`, {
+      method: "PUT",
+      headers: authHeaders(installationToken),
+      body: JSON.stringify({
+        message,
+        content: Buffer.from(content, "utf8").toString("base64"),
+        ...(sha ? { sha } : {}),
+      }),
+    });
+  } catch (error) {
+    throw new Error(
+      `Failed to write ${path} in ${fullName}: ${error?.message ?? String(error)}`,
+    );
+  }
 }
 
 async function deleteRepositoryFile({
