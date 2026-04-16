@@ -14,6 +14,18 @@ import {
 
 const TEAM_AI_PROVIDER_IDS = ["openai", "gemini", "claude", "deepseek"];
 
+export const teamAiDependencies = {
+  ensureInstallationAccess,
+  decryptWrappedKeyForBroker,
+  encryptWrappedKeyForPublicKey,
+  getTeamAiBrokerPublicKeyPayload,
+  normalizeWrappedKeyRecord,
+  getTeamAiSecretsRecord,
+  getTeamAiSettingsRecord,
+  putTeamAiSecretsRecord,
+  putTeamAiSettingsRecord,
+};
+
 function normalizeProviderId(providerId) {
   const normalized = String(providerId || "").trim().toLowerCase();
   if (!TEAM_AI_PROVIDER_IDS.includes(normalized)) {
@@ -23,29 +35,31 @@ function normalizeProviderId(providerId) {
 }
 
 function buildSecretsMetadata(record) {
+  const providers = Object.fromEntries(
+    TEAM_AI_PROVIDER_IDS.flatMap((providerId) => {
+      const provider = record.providers?.[providerId];
+      if (!provider?.brokerWrappedKey?.ciphertext) {
+        return [];
+      }
+
+      return [[providerId, {
+        configured: true,
+        keyVersion: provider.keyVersion,
+        algorithm: provider.brokerWrappedKey.algorithm,
+      }]];
+    }),
+  );
+
   return {
     schemaVersion: record.schemaVersion,
     updatedAt: record.updatedAt,
     updatedBy: record.updatedBy,
-    providers: Object.fromEntries(
-      TEAM_AI_PROVIDER_IDS.map((providerId) => {
-        const provider = record.providers[providerId];
-        if (!provider?.brokerWrappedKey?.ciphertext) {
-          return [providerId, null];
-        }
-
-        return [providerId, {
-          configured: true,
-          keyVersion: provider.keyVersion,
-          algorithm: provider.brokerWrappedKey.algorithm,
-        }];
-      }),
-    ),
+    providers,
   };
 }
 
 export function getTeamAiBrokerPublicKey() {
-  return getTeamAiBrokerPublicKeyPayload();
+  return teamAiDependencies.getTeamAiBrokerPublicKeyPayload();
 }
 
 export async function loadTeamAiSettingsForInstallation({
@@ -53,13 +67,13 @@ export async function loadTeamAiSettingsForInstallation({
   orgLogin,
   brokerSession,
 }) {
-  await ensureInstallationAccess({
+  await teamAiDependencies.ensureInstallationAccess({
     installationId,
     brokerSession,
     requireAdmin: false,
   });
 
-  return getTeamAiSettingsRecord({
+  return teamAiDependencies.getTeamAiSettingsRecord({
     installationId,
     orgLogin,
   });
@@ -71,13 +85,13 @@ export async function saveTeamAiSettingsForInstallation({
   actionPreferences,
   brokerSession,
 }) {
-  await ensureInstallationAccess({
+  await teamAiDependencies.ensureInstallationAccess({
     installationId,
     brokerSession,
     requireOwner: true,
   });
 
-  return putTeamAiSettingsRecord({
+  return teamAiDependencies.putTeamAiSettingsRecord({
     installationId,
     orgLogin,
     actionPreferences,
@@ -90,13 +104,13 @@ export async function loadTeamAiSecretsMetadataForInstallation({
   orgLogin,
   brokerSession,
 }) {
-  await ensureInstallationAccess({
+  await teamAiDependencies.ensureInstallationAccess({
     installationId,
     brokerSession,
     requireAdmin: false,
   });
 
-  return buildSecretsMetadata(await getTeamAiSecretsRecord({
+  return buildSecretsMetadata(await teamAiDependencies.getTeamAiSecretsRecord({
     installationId,
     orgLogin,
   }));
@@ -110,14 +124,14 @@ export async function saveTeamAiProviderSecretForInstallation({
   clear = false,
   brokerSession,
 }) {
-  await ensureInstallationAccess({
+  await teamAiDependencies.ensureInstallationAccess({
     installationId,
     brokerSession,
     requireOwner: true,
   });
 
   const normalizedProviderId = normalizeProviderId(providerId);
-  const currentRecord = await getTeamAiSecretsRecord({
+  const currentRecord = await teamAiDependencies.getTeamAiSecretsRecord({
     installationId,
     orgLogin,
   });
@@ -128,8 +142,8 @@ export async function saveTeamAiProviderSecretForInstallation({
   if (clear === true) {
     nextProviders[normalizedProviderId] = null;
   } else {
-    const normalizedWrappedKey = normalizeWrappedKeyRecord(wrappedKey);
-    decryptWrappedKeyForBroker(normalizedWrappedKey);
+    const normalizedWrappedKey = teamAiDependencies.normalizeWrappedKeyRecord(wrappedKey);
+    teamAiDependencies.decryptWrappedKeyForBroker(normalizedWrappedKey);
 
     const previousKeyVersion = Number.isInteger(currentRecord.providers[normalizedProviderId]?.keyVersion)
       ? currentRecord.providers[normalizedProviderId].keyVersion
@@ -141,7 +155,7 @@ export async function saveTeamAiProviderSecretForInstallation({
     };
   }
 
-  const nextRecord = await putTeamAiSecretsRecord({
+  const nextRecord = await teamAiDependencies.putTeamAiSecretsRecord({
     installationId,
     orgLogin,
     actorLogin: brokerSession?.user?.login ?? null,
@@ -161,14 +175,14 @@ export async function issueTeamAiProviderSecretForInstallation({
   memberPublicKeyPem,
   brokerSession,
 }) {
-  await ensureInstallationAccess({
+  await teamAiDependencies.ensureInstallationAccess({
     installationId,
     brokerSession,
     requireAdmin: false,
   });
 
   const normalizedProviderId = normalizeProviderId(providerId);
-  const secretsRecord = await getTeamAiSecretsRecord({
+  const secretsRecord = await teamAiDependencies.getTeamAiSecretsRecord({
     installationId,
     orgLogin,
   });
@@ -177,10 +191,10 @@ export async function issueTeamAiProviderSecretForInstallation({
     throw new Error(`This team has not configured a shared ${normalizedProviderId} key yet.`);
   }
 
-  const plaintextKey = decryptWrappedKeyForBroker(providerRecord.brokerWrappedKey);
+  const plaintextKey = teamAiDependencies.decryptWrappedKeyForBroker(providerRecord.brokerWrappedKey);
   return {
     providerId: normalizedProviderId,
     keyVersion: providerRecord.keyVersion,
-    wrappedKey: encryptWrappedKeyForPublicKey(plaintextKey, memberPublicKeyPem),
+    wrappedKey: teamAiDependencies.encryptWrappedKeyForPublicKey(plaintextKey, memberPublicKeyPem),
   };
 }

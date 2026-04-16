@@ -6,6 +6,12 @@ const TEAM_AI_SETTINGS_PATH = "ai/settings.json";
 const TEAM_AI_SECRETS_PATH = "ai/secrets.json";
 const TEAM_AI_PROVIDER_IDS = ["openai", "gemini", "claude", "deepseek"];
 
+export const teamAiMetadataDependencies = {
+  createInstallationAccessToken,
+  githubApi,
+  now: () => new Date().toISOString(),
+};
+
 function authHeaders(token) {
   return {
     Authorization: `Bearer ${token}`,
@@ -22,7 +28,7 @@ function teamAiRepositoryPath(orgLogin) {
 
 async function getRepositoryFileJsonWithSha(fullName, path, installationToken) {
   try {
-    const response = await githubApi(`/repos/${fullName}/contents/${path}`, {
+    const response = await teamAiMetadataDependencies.githubApi(`/repos/${fullName}/contents/${path}`, {
       headers: authHeaders(installationToken),
     });
     const payload = await response.json();
@@ -52,7 +58,7 @@ async function putRepositoryFile({
   installationToken,
   sha = null,
 }) {
-  await githubApi(`/repos/${fullName}/contents/${path}`, {
+  await teamAiMetadataDependencies.githubApi(`/repos/${fullName}/contents/${path}`, {
     method: "PUT",
     headers: authHeaders(installationToken),
     body: JSON.stringify({
@@ -63,9 +69,26 @@ async function putRepositoryFile({
   });
 }
 
+async function deleteRepositoryFile({
+  fullName,
+  path,
+  message,
+  installationToken,
+  sha,
+}) {
+  await teamAiMetadataDependencies.githubApi(`/repos/${fullName}/contents/${path}`, {
+    method: "DELETE",
+    headers: authHeaders(installationToken),
+    body: JSON.stringify({
+      message,
+      sha,
+    }),
+  });
+}
+
 async function loadTeamMetadataRepository({ installationId, orgLogin }) {
-  const installationToken = await createInstallationAccessToken(installationId);
-  const repositoryResponse = await githubApi(teamAiRepositoryPath(orgLogin), {
+  const installationToken = await teamAiMetadataDependencies.createInstallationAccessToken(installationId);
+  const repositoryResponse = await teamAiMetadataDependencies.githubApi(teamAiRepositoryPath(orgLogin), {
     headers: authHeaders(installationToken),
   });
   const repository = await repositoryResponse.json();
@@ -161,6 +184,10 @@ function normalizeTeamAiSecretsRecord(value) {
   };
 }
 
+function teamAiSecretsRecordIsEmpty(record) {
+  return TEAM_AI_PROVIDER_IDS.every((providerId) => !record.providers[providerId]?.brokerWrappedKey?.ciphertext);
+}
+
 export async function getTeamAiSettingsRecord({ installationId, orgLogin }) {
   const { installationToken, repository } = await loadTeamMetadataRepository({
     installationId,
@@ -192,7 +219,7 @@ export async function putTeamAiSettingsRecord({
   const current = normalizeTeamAiSettingsRecord(existing?.value ?? null);
   const record = {
     schemaVersion: TEAM_AI_SCHEMA_VERSION,
-    updatedAt: new Date().toISOString(),
+    updatedAt: teamAiMetadataDependencies.now(),
     updatedBy: normalizeOptionalString(actorLogin),
     actionPreferences: normalizeActionPreferences(actionPreferences) ?? current?.actionPreferences,
   };
@@ -238,9 +265,28 @@ export async function putTeamAiSecretsRecord({
     installationToken,
   );
   const normalizedRecord = normalizeTeamAiSecretsRecord(record);
+  if (teamAiSecretsRecordIsEmpty(normalizedRecord)) {
+    if (existing?.sha) {
+      await deleteRepositoryFile({
+        fullName: repository.full_name,
+        path: TEAM_AI_SECRETS_PATH,
+        message: "Clear team AI secrets",
+        installationToken,
+        sha: existing.sha,
+      });
+    }
+
+    return {
+      schemaVersion: TEAM_AI_SCHEMA_VERSION,
+      updatedAt: null,
+      updatedBy: null,
+      providers: {},
+    };
+  }
+
   const nextRecord = {
     ...normalizedRecord,
-    updatedAt: new Date().toISOString(),
+    updatedAt: teamAiMetadataDependencies.now(),
     updatedBy: normalizeOptionalString(actorLogin),
   };
 
