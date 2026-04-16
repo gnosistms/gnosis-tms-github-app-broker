@@ -42,6 +42,8 @@ export const config = {
   brokerStateSecret: required("BROKER_STATE_SECRET"),
   brokerToken: optional("BROKER_TOKEN"),
   brokerSessionTtlDays: parsePositiveInteger("BROKER_SESSION_TTL_DAYS", 90),
+  teamAiBrokerPrivateKey: optional("TEAM_AI_BROKER_PRIVATE_KEY").replace(/\\n/g, "\n"),
+  teamAiBrokerPublicKey: optional("TEAM_AI_BROKER_PUBLIC_KEY").replace(/\\n/g, "\n"),
   allowedDesktopCallbackPrefixes: parseAllowedDesktopPrefixes(
     optional("ALLOWED_DESKTOP_CALLBACK_PREFIXES", "http://127.0.0.1:45873/"),
   ),
