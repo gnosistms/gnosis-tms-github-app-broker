@@ -12,6 +12,7 @@ import {
   inviteUserToOrganizationForInstallation,
   listAccessibleInstallations,
   listInstallationMembers,
+  promoteOrganizationOwnerForInstallation,
   removeOrganizationAdminForInstallation,
   searchGithubUsersForInstallation,
 } from "./authorization.js";
@@ -288,6 +289,20 @@ export function registerInstallRoutes(app, { renderRedirectPage }) {
     ensureBrokerSession,
     asyncJsonRoute(async (request, response) => {
       await removeOrganizationAdminForInstallation({
+        installationId: parseInstallationId(request.params.installationId),
+        orgLogin: request.params.orgLogin,
+        username: request.params.username,
+        brokerSession: request.brokerSession,
+      });
+      response.status(204).end();
+    }),
+  );
+
+  app.patch(
+    "/api/github-app/installations/:installationId/orgs/:orgLogin/owners/:username",
+    ensureBrokerSession,
+    asyncJsonRoute(async (request, response) => {
+      await promoteOrganizationOwnerForInstallation({
         installationId: parseInstallationId(request.params.installationId),
         orgLogin: request.params.orgLogin,
         username: request.params.username,

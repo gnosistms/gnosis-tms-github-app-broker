@@ -345,3 +345,48 @@ export async function removeOrganizationAdminForInstallation({
     headers: authHeaders(brokerSession.accessToken),
   });
 }
+
+export async function promoteOrganizationOwnerForInstallation({
+  installationId,
+  orgLogin,
+  username,
+  brokerSession,
+}) {
+  await ensureInstallationAccess({
+    installationId,
+    brokerSession,
+    requireOwner: true,
+  });
+
+  const normalizedUsername = String(username || "").trim();
+  if (!normalizedUsername) {
+    throw new Error("Provide a GitHub username to make owner.");
+  }
+
+  if (normalizeGithubLogin(normalizedUsername) === normalizeGithubLogin(brokerSession.user?.login)) {
+    throw new Error("You are already an owner of this team.");
+  }
+
+  const membershipResponse = await githubApi(
+    `/orgs/${orgLogin}/memberships/${normalizedUsername}`,
+    {
+      headers: authHeaders(brokerSession.accessToken),
+    },
+  );
+  const membership = await membershipResponse.json();
+  if (membership?.state !== "active") {
+    throw new Error(`@${normalizedUsername} is not an active member of this team.`);
+  }
+
+  if (membership?.role === "admin") {
+    return;
+  }
+
+  await githubApi(`/orgs/${orgLogin}/memberships/${normalizedUsername}`, {
+    method: "PUT",
+    headers: authHeaders(brokerSession.accessToken),
+    body: JSON.stringify({
+      role: "admin",
+    }),
+  });
+}
