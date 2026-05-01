@@ -1,5 +1,10 @@
 import { config } from "./config.js";
-import { createBrokerSession, destroyBrokerSession, getBrokerSession } from "./broker-sessions.js";
+import {
+  createBrokerSession,
+  destroyBrokerSession,
+  getBrokerSession,
+  getRefreshableBrokerSession,
+} from "./broker-sessions.js";
 import { decodeInstallState, encodeInstallState } from "./install-state.js";
 import { ensureAllowedDesktopCallback } from "./security.js";
 
@@ -124,6 +129,15 @@ export function loadBrokerSessionFromHeader(request) {
   }
 
   return getBrokerSession(header.slice("Bearer ".length).trim());
+}
+
+export function loadRefreshableBrokerSessionFromHeader(request) {
+  const header = request.get("authorization") || "";
+  if (!header.startsWith("Bearer ")) {
+    return null;
+  }
+
+  return getRefreshableBrokerSession(header.slice("Bearer ".length).trim());
 }
 
 export function revokeBrokerSessionFromHeader(request) {

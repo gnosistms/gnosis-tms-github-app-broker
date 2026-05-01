@@ -23,12 +23,15 @@ function decode(value) {
   return Buffer.from(value, "base64url");
 }
 
-export function createBrokerSession(payload) {
+export function createBrokerSession(payload, options = {}) {
   const iv = crypto.randomBytes(IV_BYTES);
   const cipher = crypto.createCipheriv(SESSION_ALGORITHM, sessionKey(), iv);
+  const expiresAt = Number.isFinite(options.expiresAt)
+    ? options.expiresAt
+    : Date.now() + SESSION_TTL_MS;
   const session = {
     ...payload,
-    expiresAt: Date.now() + SESSION_TTL_MS,
+    expiresAt,
   };
   const plaintext = Buffer.from(JSON.stringify(session), "utf8");
   const ciphertext = Buffer.concat([cipher.update(plaintext), cipher.final()]);
@@ -42,7 +45,7 @@ export function createBrokerSession(payload) {
   ].join(".");
 }
 
-export function getBrokerSession(token) {
+function decryptBrokerSession(token) {
   try {
     const [version, ivPart, ciphertextPart, authTagPart] = String(token || "").split(".");
     if (version !== "v1" || !ivPart || !ciphertextPart || !authTagPart) {
@@ -66,14 +69,43 @@ export function getBrokerSession(token) {
       return null;
     }
 
-    if (!Number.isFinite(session.expiresAt) || session.expiresAt <= Date.now()) {
-      return null;
-    }
-
     return session;
   } catch {
     return null;
   }
+}
+
+export function getBrokerSession(token) {
+  const session = decryptBrokerSession(token);
+  if (!session) {
+    return null;
+  }
+
+  if (!Number.isFinite(session.expiresAt) || session.expiresAt <= Date.now()) {
+    return null;
+  }
+
+  return session;
+}
+
+export function getRefreshableBrokerSession(token) {
+  const session = decryptBrokerSession(token);
+  if (!session) {
+    return null;
+  }
+
+  if (!String(session.refreshToken || "").trim()) {
+    return null;
+  }
+
+  if (
+    Number.isFinite(session.refreshTokenExpiresAt) &&
+    session.refreshTokenExpiresAt <= Date.now()
+  ) {
+    return null;
+  }
+
+  return session;
 }
 
 export function destroyBrokerSession(_token) {

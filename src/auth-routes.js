@@ -8,7 +8,7 @@ import {
   revokeBrokerSessionFromHeader,
   validateDesktopRedirectUri,
 } from "./broker-auth.js";
-import { ensureBrokerSession } from "./security.js";
+import { ensureBrokerSession, ensureRefreshableBrokerSession } from "./security.js";
 import { listAuthorizedOrganizations } from "./authorization.js";
 import { asyncJsonRoute, asyncTextRoute } from "./route-helpers.js";
 
@@ -74,7 +74,7 @@ export function registerAuthRoutes(app, { renderRedirectPage }) {
     });
   });
 
-  app.post("/api/auth/refresh", ensureBrokerSession, asyncJsonRoute(async (request, response) => {
+  app.post("/api/auth/refresh", ensureRefreshableBrokerSession, asyncJsonRoute(async (request, response) => {
     const refreshedSession = await refreshBrokerSessionForGithubUser(request.brokerSession);
     response.json({
       sessionToken: refreshedSession.sessionToken,

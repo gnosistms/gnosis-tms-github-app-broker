@@ -1,5 +1,8 @@
 import { config } from "./config.js";
-import { loadBrokerSessionFromHeader } from "./broker-auth.js";
+import {
+  loadBrokerSessionFromHeader,
+  loadRefreshableBrokerSessionFromHeader,
+} from "./broker-auth.js";
 
 export function ensureBrokerToken(request, response, next) {
   if (!config.brokerToken) {
@@ -19,6 +22,17 @@ export function ensureBrokerToken(request, response, next) {
 
 export function ensureBrokerSession(request, response, next) {
   const session = loadBrokerSessionFromHeader(request);
+  if (!session) {
+    response.status(401).json({ error: "Unauthorized" });
+    return;
+  }
+
+  request.brokerSession = session;
+  next();
+}
+
+export function ensureRefreshableBrokerSession(request, response, next) {
+  const session = loadRefreshableBrokerSessionFromHeader(request);
   if (!session) {
     response.status(401).json({ error: "Unauthorized" });
     return;
