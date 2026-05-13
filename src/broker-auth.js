@@ -8,21 +8,38 @@ import {
 import { decodeInstallState, encodeInstallState } from "./install-state.js";
 import { ensureAllowedDesktopCallback } from "./security.js";
 
+const ALLOWED_GITHUB_OAUTH_PROMPTS = new Set(["select_account"]);
+
 function githubOauthCallbackUrl() {
   return new URL("/auth/github/callback", config.publicBaseUrl).toString();
 }
 
-export function buildGithubOauthStartUrl(_request, desktopRedirectUri, desktopState) {
+function normalizeGithubOauthPrompt(value) {
+  const prompt = String(value || "").trim();
+  if (!prompt) {
+    return null;
+  }
+  if (!ALLOWED_GITHUB_OAUTH_PROMPTS.has(prompt)) {
+    throw new Error("Unsupported GitHub OAuth prompt.");
+  }
+  return prompt;
+}
+
+export function buildGithubOauthStartUrl(_request, desktopRedirectUri, desktopState, options = {}) {
   const state = encodeInstallState({
     desktopRedirectUri,
     desktopState,
     createdAt: new Date().toISOString(),
   });
+  const prompt = normalizeGithubOauthPrompt(options.prompt);
 
   const url = new URL("https://github.com/login/oauth/authorize");
   url.searchParams.set("client_id", config.githubAppClientId);
   url.searchParams.set("redirect_uri", githubOauthCallbackUrl());
   url.searchParams.set("state", state);
+  if (prompt) {
+    url.searchParams.set("prompt", prompt);
+  }
   return url.toString();
 }
 

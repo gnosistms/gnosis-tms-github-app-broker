@@ -26,7 +26,9 @@ export function registerAuthRoutes(app, { renderRedirectPage }) {
 
     renderRedirectPage(
       response,
-      buildGithubOauthStartUrl(request, desktopRedirectUri, desktopState),
+      buildGithubOauthStartUrl(request, desktopRedirectUri, desktopState, {
+        prompt: request.query.prompt,
+      }),
       "Redirecting To GitHub",
       "Gnosis TMS is opening GitHub so you can authorize the app and continue setup.",
       "Opening GitHub now...",
