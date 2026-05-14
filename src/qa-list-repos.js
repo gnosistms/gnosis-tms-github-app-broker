@@ -249,7 +249,20 @@ export async function createGnosisQaListRepo({
   });
   const repository = await repositoryResponse.json();
 
-  await assignInitialQaListProperties(orgLogin, repository.name, installationToken);
+  try {
+    await assignInitialQaListProperties(orgLogin, repository.name, installationToken);
+  } catch (error) {
+    try {
+      await deleteRepository(orgLogin, repository.name, installationToken);
+    } catch (rollbackError) {
+      throw new Error(
+        `${error?.message ?? String(error)} Automatic QA list repo rollback also failed: ${
+          rollbackError?.message ?? String(rollbackError)
+        }`,
+      );
+    }
+    throw error;
+  }
   return qaListFromRepository(repository);
 }
 
