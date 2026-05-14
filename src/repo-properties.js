@@ -1,6 +1,7 @@
 import {
   GNOSIS_TMS_REPO_TYPE_GLOSSARY,
   GNOSIS_TMS_REPO_TYPE_PROJECT,
+  GNOSIS_TMS_REPO_TYPE_QA_LIST,
   GNOSIS_TMS_REPO_TYPE_PROPERTY_NAME,
 } from "./constants.js";
 import { githubApi } from "./github-app.js";
@@ -23,6 +24,7 @@ function createPropertySchemaPayload() {
         allowed_values: [
           GNOSIS_TMS_REPO_TYPE_PROJECT,
           GNOSIS_TMS_REPO_TYPE_GLOSSARY,
+          GNOSIS_TMS_REPO_TYPE_QA_LIST,
         ],
         values_editable_by: "org_actors",
         required: false,
@@ -102,6 +104,14 @@ export function isGlossaryRepository(properties) {
   );
 }
 
+export function isQaListRepository(properties) {
+  return properties.some(
+    (property) =>
+      property.property_name === GNOSIS_TMS_REPO_TYPE_PROPERTY_NAME &&
+      propertyValueMatches(property.value, GNOSIS_TMS_REPO_TYPE_QA_LIST),
+  );
+}
+
 export async function assignInitialProjectProperties(orgLogin, repoName, installationToken) {
   try {
     await githubApi(`/repos/${orgLogin}/${repoName}/properties/values`, {
@@ -144,6 +154,30 @@ export async function assignInitialGlossaryProperties(orgLogin, repoName, instal
     if (error.githubStatus === 403) {
       throw new Error(
         "GitHub rejected the Gnosis TMS glossary property update. The Gnosis TMS GitHub App needs the repository permission `Custom properties: Read and write`, and the installation may need to be updated after you save that permission.",
+      );
+    }
+    throw error;
+  }
+}
+
+export async function assignInitialQaListProperties(orgLogin, repoName, installationToken) {
+  try {
+    await githubApi(`/repos/${orgLogin}/${repoName}/properties/values`, {
+      method: "PATCH",
+      headers: authHeaders(installationToken),
+      body: JSON.stringify({
+        properties: [
+          {
+            property_name: GNOSIS_TMS_REPO_TYPE_PROPERTY_NAME,
+            value: GNOSIS_TMS_REPO_TYPE_QA_LIST,
+          },
+        ],
+      }),
+    });
+  } catch (error) {
+    if (error.githubStatus === 403) {
+      throw new Error(
+        "GitHub rejected the Gnosis TMS QA list property update. The Gnosis TMS GitHub App needs the repository permission `Custom properties: Read and write`, and the installation may need to be updated after you save that permission.",
       );
     }
     throw error;
