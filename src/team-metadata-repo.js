@@ -223,6 +223,40 @@ function resourceDirectoryPath(kind) {
   return `resources/${kind === "project" ? "projects" : "glossaries"}`;
 }
 
+function memberRoleRecordPath(username) {
+  return `members/${normalizeOptionalString(username)?.toLowerCase()}.json`;
+}
+
+function normalizeMemberRole(value) {
+  const role = normalizeOptionalString(value)?.toLowerCase();
+  return role === "viewer" ? "viewer" : null;
+}
+
+function normalizeMemberRoleRecord(record) {
+  if (!record || typeof record !== "object" || Array.isArray(record)) {
+    return null;
+  }
+
+  const username = normalizeOptionalString(record.username);
+  const normalizedUsername = normalizeOptionalString(record.normalizedUsername)?.toLowerCase()
+    ?? username?.toLowerCase()
+    ?? null;
+  const role = normalizeMemberRole(record.role);
+  if (!username || !normalizedUsername || !role) {
+    return null;
+  }
+
+  return {
+    username,
+    normalizedUsername,
+    role,
+    createdAt: normalizeOptionalString(record.createdAt),
+    updatedAt: normalizeOptionalString(record.updatedAt),
+    createdBy: normalizeOptionalString(record.createdBy),
+    updatedBy: normalizeOptionalString(record.updatedBy),
+  };
+}
+
 async function loadTeamMetadataRepository({ installationId, orgLogin }) {
   const installationToken = await createInstallationAccessToken(installationId);
   const repositoryResponse = await githubApi(`/repos/${orgLogin}/${TEAM_METADATA_REPO_NAME}`, {
@@ -662,5 +696,113 @@ export async function listGlossaryMetadataRecords({
     orgLogin,
     kind: "glossary",
     normalizeRecord: normalizeGlossaryMetadataRecord,
+  });
+}
+
+export async function listMemberRoleMetadataRecords({
+  installationId,
+  orgLogin,
+}) {
+  const { installationToken, repository } = await loadTeamMetadataRepository({
+    installationId,
+    orgLogin,
+  });
+  const directoryEntries = await listRepositoryDirectory(
+    repository.full_name,
+    "members",
+    installationToken,
+  );
+  const jsonPaths = directoryEntries
+    .filter((entry) =>
+      entry?.type === "file"
+      && typeof entry.path === "string"
+      && entry.path.endsWith(".json")
+    )
+    .map((entry) => entry.path);
+
+  const records = await Promise.all(
+    jsonPaths.map(async (path) => {
+      const file = await getRepositoryFileJsonWithSha(repository.full_name, path, installationToken);
+      return normalizeMemberRoleRecord(file?.value);
+    }),
+  );
+
+  return records.filter(Boolean);
+}
+
+export async function setMemberViewerRoleMetadataRecord({
+  installationId,
+  orgLogin,
+  username,
+  brokerSession,
+}) {
+  const normalizedUsername = normalizeOptionalString(username);
+  if (!normalizedUsername) {
+    throw new Error("Could not determine which member role metadata record to write.");
+  }
+
+  const { installationToken, repository } = await loadTeamMetadataRepository({
+    installationId,
+    orgLogin,
+  });
+  const path = memberRoleRecordPath(normalizedUsername);
+  const existingRecord = await getRepositoryFileJsonWithSha(
+    repository.full_name,
+    path,
+    installationToken,
+  );
+  const now = new Date().toISOString();
+  const existingValue = normalizeMemberRoleRecord(existingRecord?.value) ?? {};
+  const record = {
+    schemaVersion: 1,
+    username: existingValue.username ?? normalizedUsername,
+    normalizedUsername: normalizedUsername.toLowerCase(),
+    role: "viewer",
+    createdAt: existingValue.createdAt ?? now,
+    updatedAt: now,
+    createdBy: existingValue.createdBy ?? normalizeOptionalString(brokerSession?.user?.login),
+    updatedBy: normalizeOptionalString(brokerSession?.user?.login) ?? existingValue.updatedBy ?? null,
+  };
+
+  await putRepositoryFile({
+    fullName: repository.full_name,
+    path,
+    message: existingRecord ? "Update member role metadata" : "Create member role metadata",
+    content: `${JSON.stringify(record, null, 2)}\n`,
+    installationToken,
+    sha: existingRecord?.sha || null,
+  });
+}
+
+export async function deleteMemberRoleMetadataRecord({
+  installationId,
+  orgLogin,
+  username,
+}) {
+  const normalizedUsername = normalizeOptionalString(username);
+  if (!normalizedUsername) {
+    throw new Error("Could not determine which member role metadata record to delete.");
+  }
+
+  const { installationToken, repository } = await loadTeamMetadataRepository({
+    installationId,
+    orgLogin,
+  });
+  const path = memberRoleRecordPath(normalizedUsername);
+  const existingRecord = await getRepositoryFileJsonWithSha(
+    repository.full_name,
+    path,
+    installationToken,
+  );
+  if (!existingRecord?.sha) {
+    return;
+  }
+
+  await deleteRepositoryFile({
+    fullName: repository.full_name,
+    path,
+    message: "Delete member role metadata",
+    installationToken,
+    sha: existingRecord.sha,
   });
 }

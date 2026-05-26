@@ -8,7 +8,140 @@ import {
   listOrganizationAdminTeamMembers,
   normalizeGithubLogin,
 } from "./installation-access.js";
-import { ensureTeamMetadataRepo, inspectTeamMetadataRepo } from "./team-metadata-repo.js";
+import {
+  deleteMemberRoleMetadataRecord,
+  ensureTeamMetadataRepo,
+  inspectTeamMetadataRepo,
+  listMemberRoleMetadataRecords,
+  setMemberViewerRoleMetadataRecord,
+} from "./team-metadata-repo.js";
+
+const MEMBER_ROLE_VALUES = new Set(["viewer", "translator", "admin", "owner"]);
+const MIN_OWNER_COUNT_MESSAGE = "This team needs at least one Owner. Add another Owner before continuing.";
+
+function normalizeMemberRoleValue(role) {
+  const normalizedRole = typeof role === "string" ? role.trim().toLowerCase() : "";
+  if (!MEMBER_ROLE_VALUES.has(normalizedRole)) {
+    throw new Error("Choose Viewer, Translator, Admin, or Owner.");
+  }
+  return normalizedRole;
+}
+
+function requireUsername(username, action) {
+  const normalizedUsername = String(username || "").trim();
+  if (!normalizedUsername) {
+    throw new Error(`Provide a GitHub username to ${action}.`);
+  }
+  return normalizedUsername;
+}
+
+function confirmationMatches(confirmationUsername, targetUsername) {
+  return normalizeGithubLogin(String(confirmationUsername || "").replace(/^@/, ""))
+    === normalizeGithubLogin(targetUsername);
+}
+
+async function listOrganizationOwnerLogins(orgLogin, installationToken) {
+  const response = await githubApi(`/orgs/${orgLogin}/members?role=admin&per_page=100`, {
+    headers: authHeaders(installationToken),
+  });
+  const payload = await response.json();
+  return new Set(
+    (Array.isArray(payload) ? payload : [])
+      .map((member) => normalizeGithubLogin(member?.login))
+      .filter(Boolean),
+  );
+}
+
+async function loadActiveOrganizationMembership(orgLogin, username, token) {
+  const normalizedUsername = requireUsername(username, "change this member role");
+  const membershipResponse = await githubApi(
+    `/orgs/${orgLogin}/memberships/${normalizedUsername}`,
+    {
+      headers: authHeaders(token),
+    },
+  );
+  const membership = await membershipResponse.json();
+  if (membership?.state !== "active") {
+    throw new Error(`@${normalizedUsername} is not an active member of this team.`);
+  }
+  return membership;
+}
+
+async function clearMemberRoleMetadata(options) {
+  try {
+    await deleteMemberRoleMetadataRecord(options);
+  } catch (error) {
+    if (error?.githubStatus !== 404) {
+      throw error;
+    }
+  }
+}
+
+async function listViewerRoleLogins({ installationId, orgLogin }) {
+  try {
+    const records = await listMemberRoleMetadataRecords({ installationId, orgLogin });
+    return new Set(records.map((record) => normalizeGithubLogin(record.username)).filter(Boolean));
+  } catch (error) {
+    if (error?.githubStatus === 404) {
+      return new Set();
+    }
+    throw error;
+  }
+}
+
+async function assertOwnerChangeIsAllowed({
+  installationToken,
+  orgLogin,
+  username,
+  brokerSession,
+  confirmationUsername = null,
+  action,
+}) {
+  if (normalizeGithubLogin(username) === normalizeGithubLogin(brokerSession.user?.login)) {
+    throw new Error(
+      "Team owners can not change their own account type. If you need to change this, ask another owner to do it for you.",
+    );
+  }
+
+  const ownerLogins = await listOrganizationOwnerLogins(orgLogin, installationToken);
+  if (ownerLogins.size <= 1 && ownerLogins.has(normalizeGithubLogin(username))) {
+    throw new Error(MIN_OWNER_COUNT_MESSAGE);
+  }
+
+  if (!confirmationMatches(confirmationUsername, username)) {
+    throw new Error(`Type @${username} to ${action}.`);
+  }
+}
+
+async function demoteOwnerToMemberIfNeeded({
+  installationToken,
+  orgLogin,
+  username,
+  targetMembership,
+  brokerSession,
+  confirmationUsername,
+}) {
+  if (targetMembership?.role !== "admin") {
+    return;
+  }
+
+  await assertOwnerChangeIsAllowed({
+    installationToken,
+    orgLogin,
+    username,
+    brokerSession,
+    confirmationUsername,
+    action: "change this Owner's role",
+  });
+
+  await githubApi(`/orgs/${orgLogin}/memberships/${username}`, {
+    method: "PUT",
+    headers: authHeaders(brokerSession.accessToken),
+    body: JSON.stringify({
+      role: "member",
+    }),
+  });
+}
 
 export async function configureOrganizationForGnosis({
   installationId,
@@ -156,6 +289,7 @@ export async function listInstallationMembers(installationId, orgLogin, brokerSe
   const payload = await membersResponse.json();
   const adminPayload = await adminMembersResponse.json();
   const adminTeamMemberLogins = await listOrganizationAdminTeamMembers(orgLogin, installationToken);
+  const viewerRoleLogins = await listViewerRoleLogins({ installationId, orgLogin });
   const adminLogins = new Set(
     (Array.isArray(adminPayload) ? adminPayload : [])
       .map((member) => String(member?.login || "").trim().toLowerCase())
@@ -169,7 +303,9 @@ export async function listInstallationMembers(installationId, orgLogin, brokerSe
       ? "owner"
       : adminTeamMemberLogins.has(normalizeGithubLogin(member?.login))
         ? "admin"
-        : "member",
+        : viewerRoleLogins.has(normalizeGithubLogin(member?.login))
+          ? "viewer"
+          : "member",
   }));
 }
 
@@ -388,5 +524,136 @@ export async function promoteOrganizationOwnerForInstallation({
     body: JSON.stringify({
       role: "admin",
     }),
+  });
+}
+
+export async function setOrganizationMemberRoleForInstallation({
+  installationId,
+  orgLogin,
+  username,
+  role,
+  confirmationUsername = null,
+  brokerSession,
+}) {
+  await ensureInstallationAccess({
+    installationId,
+    brokerSession,
+    requireOwner: true,
+  });
+
+  const nextRole = normalizeMemberRoleValue(role);
+  const normalizedUsername = requireUsername(username, "change this member role");
+
+  if (nextRole === "owner") {
+    await promoteOrganizationOwnerForInstallation({
+      installationId,
+      orgLogin,
+      username: normalizedUsername,
+      brokerSession,
+    });
+    await clearMemberRoleMetadata({
+      installationId,
+      orgLogin,
+      username: normalizedUsername,
+    });
+    return;
+  }
+
+  const installationToken = await createInstallationAccessToken(installationId);
+  const targetMembership = await loadActiveOrganizationMembership(
+    orgLogin,
+    normalizedUsername,
+    brokerSession.accessToken,
+  );
+
+  await demoteOwnerToMemberIfNeeded({
+    installationToken,
+    orgLogin,
+    username: normalizedUsername,
+    targetMembership,
+    brokerSession,
+    confirmationUsername,
+  });
+
+  if (nextRole === "admin") {
+    await addOrganizationAdminForInstallation({
+      installationId,
+      orgLogin,
+      username: normalizedUsername,
+      brokerSession,
+    });
+    await clearMemberRoleMetadata({
+      installationId,
+      orgLogin,
+      username: normalizedUsername,
+    });
+    return;
+  }
+
+  await removeOrganizationAdminForInstallation({
+    installationId,
+    orgLogin,
+    username: normalizedUsername,
+    brokerSession,
+  });
+
+  if (nextRole === "viewer") {
+    await setMemberViewerRoleMetadataRecord({
+      installationId,
+      orgLogin,
+      username: normalizedUsername,
+      brokerSession,
+    });
+    return;
+  }
+
+  await clearMemberRoleMetadata({
+    installationId,
+    orgLogin,
+    username: normalizedUsername,
+  });
+}
+
+export async function removeOrganizationMemberForInstallation({
+  installationId,
+  orgLogin,
+  username,
+  confirmationUsername = null,
+  brokerSession,
+}) {
+  await ensureInstallationAccess({
+    installationId,
+    brokerSession,
+    requireOwner: true,
+  });
+
+  const normalizedUsername = requireUsername(username, "remove this member");
+  const installationToken = await createInstallationAccessToken(installationId);
+  const targetMembership = await loadActiveOrganizationMembership(
+    orgLogin,
+    normalizedUsername,
+    brokerSession.accessToken,
+  );
+
+  if (targetMembership?.role === "admin") {
+    await assertOwnerChangeIsAllowed({
+      installationToken,
+      orgLogin,
+      username: normalizedUsername,
+      brokerSession,
+      confirmationUsername,
+      action: "remove this Owner",
+    });
+  }
+
+  await clearMemberRoleMetadata({
+    installationId,
+    orgLogin,
+    username: normalizedUsername,
+  });
+
+  await githubApi(`/orgs/${orgLogin}/memberships/${normalizedUsername}`, {
+    method: "DELETE",
+    headers: authHeaders(brokerSession.accessToken),
   });
 }

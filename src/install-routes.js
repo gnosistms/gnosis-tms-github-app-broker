@@ -14,7 +14,9 @@ import {
   listInstallationMembers,
   promoteOrganizationOwnerForInstallation,
   removeOrganizationAdminForInstallation,
+  removeOrganizationMemberForInstallation,
   searchGithubUsersForInstallation,
+  setOrganizationMemberRoleForInstallation,
 } from "./authorization.js";
 import { asyncJsonRoute, asyncTextRoute, parseInstallationId } from "./route-helpers.js";
 
@@ -292,6 +294,39 @@ export function registerInstallRoutes(app, { renderRedirectPage }) {
         installationId: parseInstallationId(request.params.installationId),
         orgLogin: request.params.orgLogin,
         username: request.params.username,
+        brokerSession: request.brokerSession,
+      });
+      response.status(204).end();
+    }),
+  );
+
+  app.patch(
+    "/api/github-app/installations/:installationId/orgs/:orgLogin/members/:username/role",
+    ensureBrokerSession,
+    express.json(),
+    asyncJsonRoute(async (request, response) => {
+      await setOrganizationMemberRoleForInstallation({
+        installationId: parseInstallationId(request.params.installationId),
+        orgLogin: request.params.orgLogin,
+        username: request.params.username,
+        role: request.body?.role,
+        confirmationUsername: request.body?.confirmationUsername ?? null,
+        brokerSession: request.brokerSession,
+      });
+      response.status(204).end();
+    }),
+  );
+
+  app.delete(
+    "/api/github-app/installations/:installationId/orgs/:orgLogin/members/:username",
+    ensureBrokerSession,
+    express.json(),
+    asyncJsonRoute(async (request, response) => {
+      await removeOrganizationMemberForInstallation({
+        installationId: parseInstallationId(request.params.installationId),
+        orgLogin: request.params.orgLogin,
+        username: request.params.username,
+        confirmationUsername: request.body?.confirmationUsername ?? null,
         brokerSession: request.brokerSession,
       });
       response.status(204).end();
