@@ -1,5 +1,8 @@
 import { config } from "./config.js";
 import { createInstallationAccessToken, getInstallation, githubApi } from "./github-app.js";
+import { listMemberRoleMetadataRecords } from "./team-metadata-repo.js";
+
+export const READ_ONLY_ROLE = "viewer";
 
 function normalizeLogin(login) {
   return typeof login === "string" && login.trim()
@@ -94,6 +97,22 @@ async function loadOrganizationMembership(orgLogin, userAccessToken) {
   }
 }
 
+export async function listViewerRoleLogins({ installationId, orgLogin }) {
+  try {
+    const records = await listMemberRoleMetadataRecords({ installationId, orgLogin });
+    return new Set(records.map((record) => normalizeLogin(record.username)).filter(Boolean));
+  } catch (error) {
+    if (error?.githubStatus === 403 || error?.githubStatus === 404) {
+      return new Set();
+    }
+    throw error;
+  }
+}
+
+export function isReadOnlyInstallationAccess(installation) {
+  return installation?.membershipRole === READ_ONLY_ROLE;
+}
+
 export async function getInstallationAccessDetails({
   installationId,
   brokerSession,
@@ -149,19 +168,30 @@ export async function getInstallationAccessDetails({
     installation.accountLogin,
     installationToken,
   );
+  const viewerRoleLogins = await listViewerRoleLogins({
+    installationId,
+    orgLogin: installation.accountLogin,
+  });
   const isOwner = membership.state === "active" && membership.role === "admin";
-  const isAppAdmin =
-    isOwner || adminTeamMemberLogins.has(normalizeLogin(brokerSession.user.login));
+  const normalizedActorLogin = normalizeLogin(brokerSession.user.login);
+  const isAppAdmin = isOwner || adminTeamMemberLogins.has(normalizedActorLogin);
+  const isViewer = !isOwner && viewerRoleLogins.has(normalizedActorLogin);
 
   return {
     ...installation,
     accountName: orgPayload.name || null,
     description: orgPayload.description || null,
     membershipState: membership.state || "unknown",
-    membershipRole: membership.role || "member",
+    membershipRole: isOwner
+      ? "owner"
+      : isAppAdmin
+        ? "admin"
+        : isViewer
+          ? READ_ONLY_ROLE
+          : "member",
     canDelete: isOwner,
     canManageMembers: isOwner,
-    canManageProjects: membership.state === "active" && isAppAdmin,
+    canManageProjects: membership.state === "active" && isAppAdmin && !isViewer,
     canLeave: membership.state === "active",
     permissions,
     appApprovalUrl,

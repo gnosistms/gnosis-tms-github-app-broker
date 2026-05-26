@@ -87,6 +87,10 @@ function installGithubFetchFixture(options = {}) {
       return githubResponse([]);
     }
 
+    if (method === "GET" && path === "/repos/team-one/team-metadata") {
+      return githubResponse({ message: "Not Found" }, 404);
+    }
+
     if (method === "GET" && path === "/orgs/team-one/memberships/alice") {
       return githubResponse({
         state: targetState,

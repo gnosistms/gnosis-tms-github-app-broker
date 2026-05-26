@@ -2,7 +2,10 @@ import {
   GNOSIS_TMS_REPO_STATUS_ACTIVE,
   GNOSIS_TMS_REPO_STATUS_DELETED,
 } from "./constants.js";
-import { ensureInstallationAccess } from "./installation-access.js";
+import {
+  ensureInstallationAccess,
+  isReadOnlyInstallationAccess,
+} from "./installation-access.js";
 import {
   createInstallationAccessToken,
   githubApi,
@@ -389,9 +392,15 @@ export async function listGnosisProjectsForInstallation(installationId, brokerSe
 }
 
 export async function getInstallationGitTransportToken({ installationId, brokerSession }) {
-  await ensureInstallationAccess({ installationId, brokerSession, requireAdmin: false });
-  const token = await createInstallationAccessToken(installationId);
-  return { token };
+  const installation = await ensureInstallationAccess({ installationId, brokerSession, requireAdmin: false });
+  const readOnly = isReadOnlyInstallationAccess(installation);
+  const token = await createInstallationAccessToken(
+    installationId,
+    readOnly
+      ? { permissions: { contents: "read", metadata: "read" } }
+      : {},
+  );
+  return { token, readOnly };
 }
 
 export async function createGnosisProjectRepo({

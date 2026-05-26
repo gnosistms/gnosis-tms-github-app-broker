@@ -23,8 +23,17 @@ Object.assign(process.env, {
 const {
   listInstallationMembers,
   removeOrganizationMemberForInstallation,
+  inviteUserToOrganizationForInstallation,
   setOrganizationMemberRoleForInstallation,
 } = await import("./authorization.js");
+
+const {
+  getInstallationAccessDetails,
+} = await import("./installation-access.js");
+
+const {
+  getInstallationGitTransportToken,
+} = await import("./project-repos.js");
 
 const originalFetch = globalThis.fetch;
 
@@ -122,6 +131,14 @@ function installGithubFetchFixture(options = {}) {
       });
     }
 
+    if (method === "GET" && path === "/users/alice") {
+      return githubResponse({
+        id: 1001,
+        login: "alice",
+        name: "Alice",
+      });
+    }
+
     if (method === "GET" && path === "/orgs/team-one/members?role=admin&per_page=100") {
       return githubResponse(owners);
     }
@@ -139,6 +156,14 @@ function installGithubFetchFixture(options = {}) {
 
     if (method === "DELETE" && path === "/orgs/team-one/memberships/alice") {
       return githubResponse({});
+    }
+
+    if (method === "POST" && path === "/orgs/team-one/invitations") {
+      return githubResponse({
+        id: 77,
+        login: "alice",
+        email: null,
+      }, 201);
     }
 
     if (method === "PUT" && path === "/orgs/team-one/teams/admins/memberships/alice") {
@@ -337,4 +362,97 @@ test("removeOrganizationMemberForInstallation requires owner confirmation before
     calls.some((call) => call.method === "DELETE" && call.path === "/orgs/team-one/memberships/alice"),
     true,
   );
+});
+
+test("inviteUserToOrganizationForInstallation stores viewer metadata for viewer invites", async () => {
+  const calls = installGithubFetchFixture();
+
+  const invite = await inviteUserToOrganizationForInstallation({
+    installationId: 42,
+    orgLogin: "team-one",
+    inviteeId: null,
+    inviteeLogin: "alice",
+    inviteeEmail: null,
+    role: "viewer",
+    brokerSession: defaultBrokerSession(),
+  });
+
+  assert.deepEqual(invite, {
+    id: 77,
+    login: "alice",
+    email: null,
+  });
+  const metadataWrite = calls.find(
+    (call) => call.method === "PUT" && call.path === "/repos/team-one/team-metadata/contents/members/alice.json",
+  );
+  assert.ok(metadataWrite);
+  const inviteRequest = calls.find(
+    (call) => call.method === "POST" && call.path === "/orgs/team-one/invitations",
+  );
+  assert.deepEqual(JSON.parse(inviteRequest.body), {
+    invitee_id: 1001,
+    role: "direct_member",
+  });
+});
+
+test("getInstallationAccessDetails treats viewer metadata as read-only access", async () => {
+  installGithubFetchFixture({
+    callerRole: "member",
+    existingViewerRecord: {
+      username: "alice",
+      normalizedUsername: "alice",
+      role: "viewer",
+    },
+  });
+
+  const details = await getInstallationAccessDetails({
+    installationId: 42,
+    brokerSession: {
+      accessToken: "caller-token",
+      user: {
+        login: "alice",
+      },
+    },
+  });
+
+  assert.equal(details.membershipState, "active");
+  assert.equal(details.membershipRole, "viewer");
+  assert.equal(details.canManageProjects, false);
+  assert.equal(details.canManageMembers, false);
+});
+
+test("getInstallationGitTransportToken narrows viewer tokens to read-only repository permissions", async () => {
+  const calls = installGithubFetchFixture({
+    callerRole: "member",
+    existingViewerRecord: {
+      username: "alice",
+      normalizedUsername: "alice",
+      role: "viewer",
+    },
+  });
+
+  const payload = await getInstallationGitTransportToken({
+    installationId: 42,
+    brokerSession: {
+      accessToken: "caller-token",
+      user: {
+        login: "alice",
+      },
+    },
+  });
+
+  assert.deepEqual(payload, {
+    token: "installation-token",
+    readOnly: true,
+  });
+  const tokenRequests = calls.filter(
+    (call) => call.method === "POST" && call.path === "/app/installations/42/access_tokens",
+  );
+  assert.ok(tokenRequests.length >= 2);
+  assert.deepEqual(JSON.parse(tokenRequests.at(-1).body), {
+    permissions: {
+      contents: "read",
+      metadata: "read",
+    },
+  });
 });

@@ -374,6 +374,7 @@ test("issueTeamAiProviderSecretForInstallation permission checks allow active me
       const restore = replaceDependencies(teamAiDependencies, {
         ...baseDependencies,
         ensureInstallationAccess: async () => accessCase.installation,
+        isReadOnlyInstallationAccess: () => false,
       });
 
       try {
@@ -406,9 +407,7 @@ test("issueTeamAiProviderSecretForInstallation permission checks allow active me
   await t.test("non-member is rejected", async () => {
     const restore = replaceDependencies(teamAiDependencies, {
       ...baseDependencies,
-      ensureInstallationAccess: async () => {
-        throw new Error("Your membership in @team-one is not active.");
-      },
+      ensureInstallationAccess: async () => { throw new Error("Your membership in @team-one is not active."); },
     });
 
     try {
@@ -426,6 +425,35 @@ test("issueTeamAiProviderSecretForInstallation permission checks allow active me
             },
           }),
         /not active/i,
+      );
+    } finally {
+      restore();
+    }
+  });
+
+  await t.test("viewer is rejected", async () => {
+    const restore = replaceDependencies(teamAiDependencies, {
+      ...baseDependencies,
+      ensureInstallationAccess: async () => ({
+        membershipState: "active",
+        membershipRole: "viewer",
+        canDelete: false,
+        canManageProjects: false,
+      }),
+      isReadOnlyInstallationAccess: (installation) => installation?.membershipRole === "viewer",
+    });
+
+    try {
+      await assert.rejects(
+        () =>
+          issueTeamAiProviderSecretForInstallation({
+            installationId: 42,
+            orgLogin: "team-one",
+            providerId: "openai",
+            memberPublicKeyPem: "member-public-key",
+            brokerSession: { user: { login: "viewer" } },
+          }),
+        /Viewers cannot use shared team AI keys\./,
       );
     } finally {
       restore();

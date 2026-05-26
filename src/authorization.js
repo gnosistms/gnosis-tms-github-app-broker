@@ -6,13 +6,13 @@ import {
   findExistingAdminTeam,
   getInstallationAccessDetails,
   listOrganizationAdminTeamMembers,
+  listViewerRoleLogins,
   normalizeGithubLogin,
 } from "./installation-access.js";
 import {
   deleteMemberRoleMetadataRecord,
   ensureTeamMetadataRepo,
   inspectTeamMetadataRepo,
-  listMemberRoleMetadataRecords,
   setMemberViewerRoleMetadataRecord,
 } from "./team-metadata-repo.js";
 
@@ -74,18 +74,6 @@ async function clearMemberRoleMetadata(options) {
     if (error?.githubStatus !== 404) {
       throw error;
     }
-  }
-}
-
-async function listViewerRoleLogins({ installationId, orgLogin }) {
-  try {
-    const records = await listMemberRoleMetadataRecords({ installationId, orgLogin });
-    return new Set(records.map((record) => normalizeGithubLogin(record.username)).filter(Boolean));
-  } catch (error) {
-    if (error?.githubStatus === 404) {
-      return new Set();
-    }
-    throw error;
   }
 }
 
@@ -377,6 +365,7 @@ export async function inviteUserToOrganizationForInstallation({
   inviteeId,
   inviteeLogin,
   inviteeEmail,
+  role = null,
   brokerSession,
 }) {
   await ensureInstallationAccess({
@@ -385,6 +374,7 @@ export async function inviteUserToOrganizationForInstallation({
     requireOwner: true,
   });
 
+  const requestedRole = normalizeMemberRoleValue(role || "translator");
   let resolvedInviteeId = inviteeId ?? null;
   const normalizedLogin = String(inviteeLogin || "").trim();
   const normalizedEmail = String(inviteeEmail || "").trim();
@@ -415,6 +405,18 @@ export async function inviteUserToOrganizationForInstallation({
     }),
   });
   const payload = await response.json();
+
+  const invitedLogin = payload.login || normalizedLogin || null;
+  if (requestedRole === "viewer" && invitedLogin) {
+    await setMemberViewerRoleMetadataRecord({
+      installationId,
+      orgLogin,
+      username: invitedLogin,
+      brokerSession,
+    });
+  } else if (invitedLogin) {
+    await clearMemberRoleMetadata({ installationId, orgLogin, username: invitedLogin });
+  }
 
   return {
     id: payload.id,

@@ -222,6 +222,7 @@ export function registerInstallRoutes(app, { renderRedirectPage }) {
           inviteeId:
             request.body?.inviteeId == null ? null : parseInstallationId(String(request.body.inviteeId)),
           inviteeLogin: request.body?.inviteeLogin ?? null,
+          role: request.body?.role ?? null,
           inviteeEmail: request.body?.inviteeEmail ?? null,
           brokerSession: request.brokerSession,
         }),

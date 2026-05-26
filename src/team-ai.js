@@ -1,4 +1,7 @@
-import { ensureInstallationAccess } from "./installation-access.js";
+import {
+  ensureInstallationAccess,
+  isReadOnlyInstallationAccess,
+} from "./installation-access.js";
 import {
   decryptWrappedKeyForBroker,
   encryptWrappedKeyForPublicKey,
@@ -16,6 +19,7 @@ const TEAM_AI_PROVIDER_IDS = ["openai", "gemini", "claude", "deepseek"];
 
 export const teamAiDependencies = {
   ensureInstallationAccess,
+  isReadOnlyInstallationAccess,
   decryptWrappedKeyForBroker,
   encryptWrappedKeyForPublicKey,
   getTeamAiBrokerPublicKeyPayload,
@@ -175,11 +179,14 @@ export async function issueTeamAiProviderSecretForInstallation({
   memberPublicKeyPem,
   brokerSession,
 }) {
-  await teamAiDependencies.ensureInstallationAccess({
+  const installation = await teamAiDependencies.ensureInstallationAccess({
     installationId,
     brokerSession,
     requireAdmin: false,
   });
+  if (teamAiDependencies.isReadOnlyInstallationAccess(installation)) {
+    throw new Error("Viewers cannot use shared team AI keys.");
+  }
 
   const normalizedProviderId = normalizeProviderId(providerId);
   const secretsRecord = await teamAiDependencies.getTeamAiSecretsRecord({

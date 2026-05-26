@@ -97,12 +97,19 @@ export async function getInstallation(installationId) {
   };
 }
 
-export async function createInstallationAccessToken(installationId) {
+export async function createInstallationAccessToken(installationId, options = {}) {
+  const body = {};
+  if (options?.permissions && typeof options.permissions === "object") {
+    body.permissions = options.permissions;
+  }
+
   const response = await githubApi(`/app/installations/${installationId}/access_tokens`, {
     method: "POST",
     headers: {
       Authorization: `Bearer ${githubAppJwt()}`,
+      ...(Object.keys(body).length ? { "Content-Type": "application/json" } : {}),
     },
+    ...(Object.keys(body).length ? { body: JSON.stringify(body) } : {}),
   });
 
   const payload = await response.json();
