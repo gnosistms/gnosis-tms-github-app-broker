@@ -175,7 +175,7 @@ export async function getInstallationAccessDetails({
   const isOwner = membership.state === "active" && membership.role === "admin";
   const normalizedActorLogin = normalizeLogin(brokerSession.user.login);
   const isAppAdmin = isOwner || adminTeamMemberLogins.has(normalizedActorLogin);
-  const isViewer = !isOwner && viewerRoleLogins.has(normalizedActorLogin);
+  const isViewer = !isAppAdmin && viewerRoleLogins.has(normalizedActorLogin);
 
   return {
     ...installation,

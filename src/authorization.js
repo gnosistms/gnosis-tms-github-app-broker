@@ -77,6 +77,29 @@ async function clearMemberRoleMetadata(options) {
   }
 }
 
+async function clearMemberRoleMetadataAfterPromotion(options) {
+  const attempts = 3;
+  let lastError = null;
+
+  for (let attempt = 1; attempt <= attempts; attempt += 1) {
+    try {
+      await clearMemberRoleMetadata(options);
+      return;
+    } catch (error) {
+      lastError = error;
+    }
+  }
+
+  console.warn(
+    [
+      "Could not clear stale member role metadata after GitHub role promotion.",
+      `org=${options.orgLogin}`,
+      `username=${options.username}`,
+      `error=${lastError?.message ?? String(lastError)}`,
+    ].join(" "),
+  );
+}
+
 async function assertOwnerChangeIsAllowed({
   installationToken,
   orgLogin,
@@ -424,7 +447,7 @@ export async function inviteUserToOrganizationForInstallation({
       brokerSession,
     });
   } else if (requestedRole === "admin" && invitedLogin) {
-    await clearMemberRoleMetadata({ installationId, orgLogin, username: invitedLogin });
+    await clearMemberRoleMetadataAfterPromotion({ installationId, orgLogin, username: invitedLogin });
   } else if (invitedLogin) {
     await clearMemberRoleMetadata({ installationId, orgLogin, username: invitedLogin });
   }
@@ -466,7 +489,7 @@ export async function addOrganizationAdminForInstallation({
     }),
   });
 
-  await clearMemberRoleMetadata({
+  await clearMemberRoleMetadataAfterPromotion({
     installationId,
     orgLogin,
     username: normalizedUsername,
@@ -534,7 +557,7 @@ export async function promoteOrganizationOwnerForInstallation({
   }
 
   if (membership?.role === "admin") {
-    await clearMemberRoleMetadata({
+    await clearMemberRoleMetadataAfterPromotion({
       installationId,
       orgLogin,
       username: normalizedUsername,
@@ -550,7 +573,7 @@ export async function promoteOrganizationOwnerForInstallation({
     }),
   });
 
-  await clearMemberRoleMetadata({
+  await clearMemberRoleMetadataAfterPromotion({
     installationId,
     orgLogin,
     username: normalizedUsername,
@@ -581,11 +604,6 @@ export async function setOrganizationMemberRoleForInstallation({
       username: normalizedUsername,
       brokerSession,
     });
-    await clearMemberRoleMetadata({
-      installationId,
-      orgLogin,
-      username: normalizedUsername,
-    });
     return;
   }
 
@@ -611,11 +629,6 @@ export async function setOrganizationMemberRoleForInstallation({
       orgLogin,
       username: normalizedUsername,
       brokerSession,
-    });
-    await clearMemberRoleMetadata({
-      installationId,
-      orgLogin,
-      username: normalizedUsername,
     });
     return;
   }

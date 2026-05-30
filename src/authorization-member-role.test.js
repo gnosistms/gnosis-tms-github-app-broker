@@ -73,6 +73,7 @@ function installGithubFetchFixture(options = {}) {
   const owners = options.owners ?? [{ login: "owner" }];
   const members = options.members ?? [{ login: "alice", avatar_url: null, html_url: null }];
   const existingViewerRecord = options.existingViewerRecord ?? null;
+  let viewerMetadataDeleteFailuresRemaining = options.viewerMetadataDeleteFailures ?? 0;
 
   globalThis.fetch = async (url, fetchOptions = {}) => {
     const parsedUrl = new URL(url);
@@ -213,6 +214,10 @@ function installGithubFetchFixture(options = {}) {
     }
 
     if (method === "DELETE" && path === "/repos/team-one/team-metadata/contents/members/alice.json") {
+      if (viewerMetadataDeleteFailuresRemaining > 0) {
+        viewerMetadataDeleteFailuresRemaining -= 1;
+        return githubResponse({ message: "Server Error" }, 500);
+      }
       return githubResponse({});
     }
 
@@ -268,6 +273,64 @@ test("setOrganizationMemberRoleForInstallation clears viewer metadata when switc
   assert.equal(
     calls.some((call) => call.method === "DELETE" && call.path === "/repos/team-one/team-metadata/contents/members/alice.json"),
     true,
+  );
+});
+
+test("setOrganizationMemberRoleForInstallation promotes viewer to admin when metadata cleanup fails", async () => {
+  const calls = installGithubFetchFixture({
+    adminTeam: { slug: "admins" },
+    existingViewerRecord: {
+      username: "alice",
+      normalizedUsername: "alice",
+      role: "viewer",
+    },
+    viewerMetadataDeleteFailures: 3,
+  });
+
+  await setOrganizationMemberRoleForInstallation({
+    installationId: 42,
+    orgLogin: "team-one",
+    username: "alice",
+    role: "admin",
+    brokerSession: defaultBrokerSession(),
+  });
+
+  assert.equal(
+    calls.some((call) => call.method === "PUT" && call.path === "/orgs/team-one/teams/admins/memberships/alice"),
+    true,
+  );
+  assert.equal(
+    calls.filter((call) => call.method === "DELETE" && call.path === "/repos/team-one/team-metadata/contents/members/alice.json").length,
+    3,
+  );
+});
+
+test("setOrganizationMemberRoleForInstallation promotes viewer to owner when metadata cleanup fails", async () => {
+  const calls = installGithubFetchFixture({
+    existingViewerRecord: {
+      username: "alice",
+      normalizedUsername: "alice",
+      role: "viewer",
+    },
+    viewerMetadataDeleteFailures: 3,
+  });
+
+  await setOrganizationMemberRoleForInstallation({
+    installationId: 42,
+    orgLogin: "team-one",
+    username: "alice",
+    role: "owner",
+    brokerSession: defaultBrokerSession(),
+  });
+
+  const promotionCall = calls.find(
+    (call) => call.method === "PUT" && call.path === "/orgs/team-one/memberships/alice",
+  );
+  assert.ok(promotionCall);
+  assert.deepEqual(JSON.parse(promotionCall.body), { role: "admin" });
+  assert.equal(
+    calls.filter((call) => call.method === "DELETE" && call.path === "/repos/team-one/team-metadata/contents/members/alice.json").length,
+    3,
   );
 });
 
@@ -341,6 +404,26 @@ test("listInstallationMembers overlays viewer metadata after GitHub owner and ap
       ["carol", "owner"],
       ["dave", "translator"],
     ],
+  );
+});
+
+test("listInstallationMembers treats stale viewer metadata as lower precedence than app admin", async () => {
+  installGithubFetchFixture({
+    adminTeam: { slug: "admins" },
+    adminTeamMembers: [{ login: "alice" }],
+    owners: [],
+    existingViewerRecord: {
+      username: "alice",
+      normalizedUsername: "alice",
+      role: "viewer",
+    },
+  });
+
+  const members = await listInstallationMembers(42, "team-one", defaultBrokerSession());
+
+  assert.deepEqual(
+    members.map((member) => [member.login, member.role]),
+    [["alice", "admin"]],
   );
 });
 
@@ -494,6 +577,34 @@ test("getInstallationAccessDetails returns translator for regular org members", 
   assert.equal(details.membershipState, "active");
   assert.equal(details.membershipRole, "translator");
   assert.equal(details.canManageProjects, false);
+  assert.equal(details.canManageMembers, false);
+});
+
+test("getInstallationAccessDetails treats stale viewer metadata as lower precedence than app admin", async () => {
+  installGithubFetchFixture({
+    callerRole: "member",
+    adminTeam: { slug: "admins" },
+    adminTeamMembers: [{ login: "alice" }],
+    existingViewerRecord: {
+      username: "alice",
+      normalizedUsername: "alice",
+      role: "viewer",
+    },
+  });
+
+  const details = await getInstallationAccessDetails({
+    installationId: 42,
+    brokerSession: {
+      accessToken: "caller-token",
+      user: {
+        login: "alice",
+      },
+    },
+  });
+
+  assert.equal(details.membershipState, "active");
+  assert.equal(details.membershipRole, "admin");
+  assert.equal(details.canManageProjects, true);
   assert.equal(details.canManageMembers, false);
 });
 
