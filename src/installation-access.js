@@ -142,7 +142,7 @@ export async function getInstallationAccessDetails({
     return {
       ...installation,
       membershipState: isSelf ? "active" : "inactive",
-      membershipRole: isSelf ? "admin" : "member",
+      membershipRole: isSelf ? "owner" : "translator",
       canDelete: isSelf,
       canManageMembers: isSelf,
       canManageProjects: isSelf,
@@ -188,7 +188,7 @@ export async function getInstallationAccessDetails({
         ? "admin"
         : isViewer
           ? READ_ONLY_ROLE
-          : "member",
+          : "translator",
     canDelete: isOwner,
     canManageMembers: isOwner,
     canManageProjects: membership.state === "active" && isAppAdmin && !isViewer,

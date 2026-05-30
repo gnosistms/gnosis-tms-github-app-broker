@@ -293,7 +293,7 @@ export async function listInstallationMembers(installationId, orgLogin, brokerSe
         ? "admin"
         : viewerRoleLogins.has(normalizeGithubLogin(member?.login))
           ? "viewer"
-          : "member",
+          : "translator",
   }));
 }
 
@@ -393,6 +393,14 @@ export async function inviteUserToOrganizationForInstallation({
     throw new Error("Provide a GitHub username or email to invite.");
   }
 
+  const adminInviteTeam = requestedRole === "admin"
+    ? await ensureAdminsTeamExists({
+        installationId,
+        orgLogin,
+        brokerSession,
+      })
+    : null;
+
   const response = await githubApi(`/orgs/${orgLogin}/invitations`, {
     method: "POST",
     headers: {
@@ -401,7 +409,8 @@ export async function inviteUserToOrganizationForInstallation({
     body: JSON.stringify({
       ...(resolvedInviteeId ? { invitee_id: resolvedInviteeId } : {}),
       ...(!resolvedInviteeId && normalizedEmail ? { email: normalizedEmail } : {}),
-      role: "direct_member",
+      ...(adminInviteTeam?.id ? { team_ids: [adminInviteTeam.id] } : {}),
+      role: requestedRole === "owner" ? "admin" : "direct_member",
     }),
   });
   const payload = await response.json();
@@ -414,6 +423,8 @@ export async function inviteUserToOrganizationForInstallation({
       username: invitedLogin,
       brokerSession,
     });
+  } else if (requestedRole === "admin" && invitedLogin) {
+    await clearMemberRoleMetadata({ installationId, orgLogin, username: invitedLogin });
   } else if (invitedLogin) {
     await clearMemberRoleMetadata({ installationId, orgLogin, username: invitedLogin });
   }
@@ -453,6 +464,12 @@ export async function addOrganizationAdminForInstallation({
     body: JSON.stringify({
       role: "member",
     }),
+  });
+
+  await clearMemberRoleMetadata({
+    installationId,
+    orgLogin,
+    username: normalizedUsername,
   });
 }
 
@@ -517,6 +534,11 @@ export async function promoteOrganizationOwnerForInstallation({
   }
 
   if (membership?.role === "admin") {
+    await clearMemberRoleMetadata({
+      installationId,
+      orgLogin,
+      username: normalizedUsername,
+    });
     return;
   }
 
@@ -526,6 +548,12 @@ export async function promoteOrganizationOwnerForInstallation({
     body: JSON.stringify({
       role: "admin",
     }),
+  });
+
+  await clearMemberRoleMetadata({
+    installationId,
+    orgLogin,
+    username: normalizedUsername,
   });
 }
 

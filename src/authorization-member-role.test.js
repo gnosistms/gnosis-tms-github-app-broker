@@ -339,9 +339,64 @@ test("listInstallationMembers overlays viewer metadata after GitHub owner and ap
       ["alice", "viewer"],
       ["bob", "admin"],
       ["carol", "owner"],
-      ["dave", "member"],
+      ["dave", "translator"],
     ],
   );
+});
+
+test("inviteUserToOrganizationForInstallation includes the app admin team on admin invites", async () => {
+  const calls = installGithubFetchFixture({
+    adminTeam: { id: 321, slug: "admins" },
+  });
+
+  await inviteUserToOrganizationForInstallation({
+    installationId: 42,
+    orgLogin: "team-one",
+    inviteeId: null,
+    inviteeLogin: "alice",
+    inviteeEmail: null,
+    role: "admin",
+    brokerSession: defaultBrokerSession(),
+  });
+
+  const inviteRequest = calls.find(
+    (call) => call.method === "POST" && call.path === "/orgs/team-one/invitations",
+  );
+  assert.deepEqual(JSON.parse(inviteRequest.body), {
+    invitee_id: 1001,
+    team_ids: [321],
+    role: "direct_member",
+  });
+  assert.equal(
+    calls.some((call) => call.method === "PUT" && call.path === "/orgs/team-one/teams/admins/memberships/alice"),
+    false,
+  );
+  assert.equal(
+    calls.some((call) => call.method === "PUT" && call.path === "/repos/team-one/team-metadata/contents/members/alice.json"),
+    false,
+  );
+});
+
+test("inviteUserToOrganizationForInstallation requests GitHub owner role for owner invites", async () => {
+  const calls = installGithubFetchFixture();
+
+  await inviteUserToOrganizationForInstallation({
+    installationId: 42,
+    orgLogin: "team-one",
+    inviteeId: null,
+    inviteeLogin: "alice",
+    inviteeEmail: null,
+    role: "owner",
+    brokerSession: defaultBrokerSession(),
+  });
+
+  const inviteRequest = calls.find(
+    (call) => call.method === "POST" && call.path === "/orgs/team-one/invitations",
+  );
+  assert.deepEqual(JSON.parse(inviteRequest.body), {
+    invitee_id: 1001,
+    role: "admin",
+  });
 });
 
 test("removeOrganizationMemberForInstallation requires owner confirmation before removing another owner", async () => {
@@ -417,6 +472,27 @@ test("getInstallationAccessDetails treats viewer metadata as read-only access", 
 
   assert.equal(details.membershipState, "active");
   assert.equal(details.membershipRole, "viewer");
+  assert.equal(details.canManageProjects, false);
+  assert.equal(details.canManageMembers, false);
+});
+
+test("getInstallationAccessDetails returns translator for regular org members", async () => {
+  installGithubFetchFixture({
+    callerRole: "member",
+  });
+
+  const details = await getInstallationAccessDetails({
+    installationId: 42,
+    brokerSession: {
+      accessToken: "caller-token",
+      user: {
+        login: "alice",
+      },
+    },
+  });
+
+  assert.equal(details.membershipState, "active");
+  assert.equal(details.membershipRole, "translator");
   assert.equal(details.canManageProjects, false);
   assert.equal(details.canManageMembers, false);
 });
