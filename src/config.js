@@ -40,6 +40,7 @@ export const config = {
   githubAppClientSecret: required("GITHUB_APP_CLIENT_SECRET"),
   githubAppPrivateKey: required("GITHUB_APP_PRIVATE_KEY").replace(/\\n/g, "\n"),
   brokerStateSecret: required("BROKER_STATE_SECRET"),
+  githubAppWebhookSecret: optional("GITHUB_APP_WEBHOOK_SECRET"),
   brokerToken: optional("BROKER_TOKEN"),
   brokerSessionTtlDays: parsePositiveInteger("BROKER_SESSION_TTL_DAYS", 90),
   teamAiBrokerPrivateKey: optional("TEAM_AI_BROKER_PRIVATE_KEY").replace(/\\n/g, "\n"),

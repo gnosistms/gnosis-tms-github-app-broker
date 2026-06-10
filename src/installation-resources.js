@@ -6,7 +6,7 @@ import { createHash } from "node:crypto";
 
 import { ensureInstallationAccess } from "./installation-access.js";
 import { createInstallationAccessToken } from "./github-app.js";
-import { loadInstallationRepositoryContext } from "./installation-repos.js";
+import { getInstallationRepositoryContext } from "./installation-manifest.js";
 import { assembleGnosisProjects } from "./project-repos.js";
 import { assembleGnosisGlossaries } from "./glossary-repos.js";
 import { assembleGnosisQaLists } from "./qa-list-repos.js";
@@ -31,7 +31,7 @@ export function computeResourceListingDigest({ projects, glossaries, qaLists }) 
 export async function listGnosisResourcesForInstallation(installationId, brokerSession) {
   await ensureInstallationAccess({ installationId, brokerSession, requireAdmin: false });
   const installationToken = await createInstallationAccessToken(installationId);
-  const context = await loadInstallationRepositoryContext(installationToken);
+  const context = await getInstallationRepositoryContext(installationId, installationToken);
 
   const projects = await assembleGnosisProjects({ installationId, installationToken, context });
   const glossaries = assembleGnosisGlossaries(context);
