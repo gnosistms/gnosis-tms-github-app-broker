@@ -115,11 +115,13 @@ export function isReadOnlyInstallationAccess(installation) {
 
 // The full access check is six sequential GitHub round trips (installation, membership,
 // org, token, admin-team members, viewer roles) — ~4s that every authorized broker
-// request used to pay. Verdicts are cached per (installation, user) for five minutes;
-// Hans accepted the staleness window explicitly (a member removed from the org keeps
-// read access for up to the TTL; writes are re-checked by their own routes). Webhook
-// installation events clear the cache.
-const ACCESS_DETAILS_TTL_MS = 5 * 60 * 1000;
+// request used to pay. Verdicts are cached per (installation, user) with two freshness
+// tiers: reads accept a verdict up to 30 minutes old (Hans accepted the staleness window
+// explicitly, and the app shows a notice after member removal), while write-relevant
+// checks — admin/owner/project-admin requirements and write-capable git token issuance —
+// require a verdict no older than 5 minutes. Webhook installation events clear the cache.
+const READ_ACCESS_MAX_AGE_MS = 30 * 60 * 1000;
+const WRITE_ACCESS_MAX_AGE_MS = 5 * 60 * 1000;
 const accessDetailsCache = new Map();
 
 function accessDetailsCacheKey(installationId, brokerSession) {
@@ -143,10 +145,11 @@ export async function getInstallationAccessDetails({
   installationId,
   brokerSession,
   installationSummary = null,
+  maxAgeMs = READ_ACCESS_MAX_AGE_MS,
 }) {
   const cacheKey = accessDetailsCacheKey(installationId, brokerSession);
   const cached = accessDetailsCache.get(cacheKey);
-  if (cached && Date.now() < cached.expiresAt) {
+  if (cached && Date.now() - cached.fetchedAt < Math.min(maxAgeMs, READ_ACCESS_MAX_AGE_MS)) {
     return cached.details;
   }
 
@@ -157,7 +160,7 @@ export async function getInstallationAccessDetails({
   });
   accessDetailsCache.set(cacheKey, {
     details,
-    expiresAt: Date.now() + ACCESS_DETAILS_TTL_MS,
+    fetchedAt: Date.now(),
   });
   return details;
 }
@@ -254,10 +257,16 @@ export async function ensureInstallationAccess({
   requireAdmin = false,
   requireOwner = false,
   requireProjectAdmin = false,
+  requireFreshAccess = false,
 }) {
+  // Write-relevant checks must not ride out the long read TTL: a demoted or removed
+  // member may keep reading up to 30 minutes, but not acting.
+  const writeRelevant =
+    requireAdmin || requireOwner || requireProjectAdmin || requireFreshAccess;
   const installation = await getInstallationAccessDetails({
     installationId,
     brokerSession,
+    maxAgeMs: writeRelevant ? WRITE_ACCESS_MAX_AGE_MS : READ_ACCESS_MAX_AGE_MS,
   });
 
   if (installation.accountType === "User") {

@@ -609,6 +609,34 @@ test("getInstallationAccessDetails caches verdicts until cleared", async () => {
   assert.ok(calls.length > callsAfterFirst, "cleared cache should refetch");
 });
 
+test("write-relevant access checks require a fresher verdict than reads", async () => {
+  const calls = installGithubFetchFixture({
+    callerRole: "member",
+  });
+  const request = {
+    installationId: 42,
+    brokerSession: {
+      accessToken: "caller-token",
+      user: {
+        login: "alice",
+      },
+    },
+  };
+
+  await getInstallationAccessDetails(request);
+  const callsAfterFirst = calls.length;
+
+  // A read accepts the cached verdict; a 5-minute write freshness requirement on the
+  // same just-fetched verdict is also satisfied without refetching.
+  await getInstallationAccessDetails({ ...request, maxAgeMs: 5 * 60 * 1000 });
+  assert.equal(calls.length, callsAfterFirst);
+
+  // A zero-age requirement (verdict must be newer than it can be) forces a refetch —
+  // proving maxAgeMs is honored rather than the flat TTL.
+  await getInstallationAccessDetails({ ...request, maxAgeMs: 0 });
+  assert.ok(calls.length > callsAfterFirst, "stricter freshness should refetch");
+});
+
 test("getInstallationAccessDetails treats stale viewer metadata as lower precedence than app admin", async () => {
   installGithubFetchFixture({
     callerRole: "member",
