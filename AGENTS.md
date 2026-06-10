@@ -47,6 +47,18 @@ npm run dev    # local server with watch (needs env vars; see src/config.js)
 npm test       # node --test src/*.test.js
 ```
 
+## Scheduled cleanup
+
+- **Legacy listing endpoints** (`gnosis-projects`, `gnosis-glossaries`,
+  `gnosis-qa-lists` GET listings in `src/project-routes.js`, `src/glossary-routes.js`,
+  `src/qa-list-routes.js`, and their `listGnosis*ForInstallation` prelude wrappers):
+  superseded by the combined `/gnosis-resources` endpoint on **2026-06-10**. Per Hans,
+  they are safe to remove **any time after 2026-06-17** — provided a desktop-app
+  release that uses the combined endpoint has actually shipped by then (the combined
+  listing merged app-side in PR #100 but removal is only safe once a release
+  containing it has been current for about a week). Keep the create/rename/delete
+  routes; only the three GET listings are scheduled for removal.
+
 ## Rules
 
 - **Compatibility** — released desktop app versions call the existing endpoints.
