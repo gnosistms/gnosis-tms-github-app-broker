@@ -75,3 +75,54 @@ test("digest changes when a resource appears in any list", () => {
     computeResourceListingDigest(withNewQaList),
   );
 });
+
+// Execute the shared listing helpers with realistic data. The listing path has no
+// endpoint-level tests, so without these a missing transitive helper in
+// installation-repos.js (a ReferenceError at runtime) would reach production unseen —
+// which is exactly what happened with propertyRepositoryKey.
+const {
+  buildOrgPropertyMap,
+  deriveOrgLoginFromRepositories,
+  chunk,
+  normalizeRepositoryKey,
+} = await import("./installation-repos.js");
+
+test("buildOrgPropertyMap keys entries from snake_case and owner/name fields", () => {
+  const map = buildOrgPropertyMap([
+    {
+      repository_full_name: "Team/Repo-One",
+      properties: [{ property_name: "gnosis-type", value: "project" }],
+    },
+    {
+      repository_owner: "team",
+      repository_name: "repo-two",
+      property_values: [{ property_name: "gnosis-type", value: "glossary" }],
+    },
+    { not: "a repository entry" },
+  ]);
+
+  assert.deepEqual(map.get("team/repo-one"), [
+    { property_name: "gnosis-type", value: "project" },
+  ]);
+  assert.deepEqual(map.get("team/repo-two"), [
+    { property_name: "gnosis-type", value: "glossary" },
+  ]);
+  assert.equal(map.size, 2);
+});
+
+test("deriveOrgLoginFromRepositories falls back from owner login to full_name", () => {
+  assert.equal(
+    deriveOrgLoginFromRepositories([{ owner: { login: " team " } }]),
+    "team",
+  );
+  assert.equal(
+    deriveOrgLoginFromRepositories([{ full_name: "team/repo" }]),
+    "team",
+  );
+  assert.equal(deriveOrgLoginFromRepositories([]), null);
+});
+
+test("chunk and normalizeRepositoryKey behave as the listings expect", () => {
+  assert.deepEqual(chunk([1, 2, 3, 4, 5], 2), [[1, 2], [3, 4], [5]]);
+  assert.equal(normalizeRepositoryKey(" Team/Repo "), "team/repo");
+});

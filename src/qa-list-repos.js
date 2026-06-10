@@ -16,41 +16,6 @@ import {
 } from "./installation-repos.js";
 
 
-function propertyRepositoryKey(entry) {
-  if (!entry || typeof entry !== "object") {
-    return null;
-  }
-
-  const fullName =
-    typeof entry.repository_full_name === "string" && entry.repository_full_name.trim()
-      ? entry.repository_full_name.trim()
-      : typeof entry.repositoryFullName === "string" && entry.repositoryFullName.trim()
-        ? entry.repositoryFullName.trim()
-        : null;
-  if (fullName) {
-    return normalizeRepositoryKey(fullName);
-  }
-
-  const owner =
-    typeof entry.repository_owner === "string" && entry.repository_owner.trim()
-      ? entry.repository_owner.trim()
-      : typeof entry.repositoryOwner === "string" && entry.repositoryOwner.trim()
-        ? entry.repositoryOwner.trim()
-        : null;
-  const name =
-    typeof entry.repository_name === "string" && entry.repository_name.trim()
-      ? entry.repository_name.trim()
-      : typeof entry.repositoryName === "string" && entry.repositoryName.trim()
-        ? entry.repositoryName.trim()
-        : null;
-
-  if (owner && name) {
-    return normalizeRepositoryKey(`${owner}/${name}`);
-  }
-
-  return null;
-}
-
 function qaListFromRepository(repository, remoteHead = null) {
   return {
     repoId: repository.id,

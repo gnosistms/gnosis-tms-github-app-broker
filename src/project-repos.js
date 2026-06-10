@@ -118,41 +118,6 @@ function saveCachedProjectMetadata(cache, fullName, remoteHeadOid, projectIdenti
   });
 }
 
-function propertyRepositoryKey(entry) {
-  if (!entry || typeof entry !== "object") {
-    return null;
-  }
-
-  const fullName =
-    typeof entry.repository_full_name === "string" && entry.repository_full_name.trim()
-      ? entry.repository_full_name.trim()
-      : typeof entry.repositoryFullName === "string" && entry.repositoryFullName.trim()
-        ? entry.repositoryFullName.trim()
-        : null;
-  if (fullName) {
-    return repoCacheKey(fullName);
-  }
-
-  const owner =
-    typeof entry.repository_owner === "string" && entry.repository_owner.trim()
-      ? entry.repository_owner.trim()
-      : typeof entry.repositoryOwner === "string" && entry.repositoryOwner.trim()
-        ? entry.repositoryOwner.trim()
-        : null;
-  const name =
-    typeof entry.repository_name === "string" && entry.repository_name.trim()
-      ? entry.repository_name.trim()
-      : typeof entry.repositoryName === "string" && entry.repositoryName.trim()
-        ? entry.repositoryName.trim()
-        : null;
-
-  if (owner && name) {
-    return repoCacheKey(`${owner}/${name}`);
-  }
-
-  return null;
-}
-
 async function mapWithConcurrency(items, concurrency, mapper) {
   if (!Array.isArray(items) || items.length === 0) {
     return [];
