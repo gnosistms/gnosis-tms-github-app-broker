@@ -113,7 +113,56 @@ export function isReadOnlyInstallationAccess(installation) {
   return installation?.membershipRole === READ_ONLY_ROLE;
 }
 
+// The full access check is six sequential GitHub round trips (installation, membership,
+// org, token, admin-team members, viewer roles) — ~4s that every authorized broker
+// request used to pay. Verdicts are cached per (installation, user) for five minutes;
+// Hans accepted the staleness window explicitly (a member removed from the org keeps
+// read access for up to the TTL; writes are re-checked by their own routes). Webhook
+// installation events clear the cache.
+const ACCESS_DETAILS_TTL_MS = 5 * 60 * 1000;
+const accessDetailsCache = new Map();
+
+function accessDetailsCacheKey(installationId, brokerSession) {
+  return `${installationId}:${normalizeLogin(brokerSession?.user?.login)}`;
+}
+
+export function clearInstallationAccessCache(installationId) {
+  const prefix = `${installationId}:`;
+  for (const key of accessDetailsCache.keys()) {
+    if (key.startsWith(prefix)) {
+      accessDetailsCache.delete(key);
+    }
+  }
+}
+
+export function resetInstallationAccessCacheForTests() {
+  accessDetailsCache.clear();
+}
+
 export async function getInstallationAccessDetails({
+  installationId,
+  brokerSession,
+  installationSummary = null,
+}) {
+  const cacheKey = accessDetailsCacheKey(installationId, brokerSession);
+  const cached = accessDetailsCache.get(cacheKey);
+  if (cached && Date.now() < cached.expiresAt) {
+    return cached.details;
+  }
+
+  const details = await loadInstallationAccessDetailsUncached({
+    installationId,
+    brokerSession,
+    installationSummary,
+  });
+  accessDetailsCache.set(cacheKey, {
+    details,
+    expiresAt: Date.now() + ACCESS_DETAILS_TTL_MS,
+  });
+  return details;
+}
+
+async function loadInstallationAccessDetailsUncached({
   installationId,
   brokerSession,
   installationSummary = null,

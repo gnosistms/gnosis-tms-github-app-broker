@@ -21,6 +21,8 @@ Object.assign(process.env, {
 });
 
 const { promoteOrganizationOwnerForInstallation } = await import("./authorization.js");
+const { resetInstallationAccessCacheForTests } = await import("./installation-access.js");
+const { resetInstallationTokenCacheForTests } = await import("./github-app.js");
 
 const originalFetch = globalThis.fetch;
 
@@ -113,6 +115,8 @@ function installGithubFetchFixture(options = {}) {
 
 test.afterEach(() => {
   globalThis.fetch = originalFetch;
+  resetInstallationAccessCacheForTests();
+  resetInstallationTokenCacheForTests();
 });
 
 test("promoteOrganizationOwnerForInstallation promotes an active member with the caller token", async () => {

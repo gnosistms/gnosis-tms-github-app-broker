@@ -29,7 +29,9 @@ const {
 
 const {
   getInstallationAccessDetails,
+  resetInstallationAccessCacheForTests,
 } = await import("./installation-access.js");
+const { resetInstallationTokenCacheForTests } = await import("./github-app.js");
 
 const {
   getInstallationGitTransportToken,
@@ -229,6 +231,8 @@ function installGithubFetchFixture(options = {}) {
 
 test.afterEach(() => {
   globalThis.fetch = originalFetch;
+  resetInstallationAccessCacheForTests();
+  resetInstallationTokenCacheForTests();
 });
 
 test("setOrganizationMemberRoleForInstallation stores viewer role metadata", async () => {
@@ -578,6 +582,31 @@ test("getInstallationAccessDetails returns translator for regular org members", 
   assert.equal(details.membershipRole, "translator");
   assert.equal(details.canManageProjects, false);
   assert.equal(details.canManageMembers, false);
+});
+
+test("getInstallationAccessDetails caches verdicts until cleared", async () => {
+  const calls = installGithubFetchFixture({
+    callerRole: "member",
+  });
+  const request = {
+    installationId: 42,
+    brokerSession: {
+      accessToken: "caller-token",
+      user: {
+        login: "alice",
+      },
+    },
+  };
+
+  await getInstallationAccessDetails(request);
+  const callsAfterFirst = calls.length;
+  const cached = await getInstallationAccessDetails(request);
+  assert.equal(calls.length, callsAfterFirst, "second verdict should make no GitHub calls");
+  assert.equal(cached.membershipRole, "translator");
+
+  resetInstallationAccessCacheForTests();
+  await getInstallationAccessDetails(request);
+  assert.ok(calls.length > callsAfterFirst, "cleared cache should refetch");
 });
 
 test("getInstallationAccessDetails treats stale viewer metadata as lower precedence than app admin", async () => {
