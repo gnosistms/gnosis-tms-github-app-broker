@@ -216,7 +216,14 @@ export async function listGnosisProjectsForInstallation(installationId, brokerSe
 }
 
 export async function getInstallationGitTransportToken({ installationId, brokerSession }) {
-  const installation = await ensureInstallationAccess({ installationId, brokerSession, requireAdmin: false });
+  // Issues write-capable git tokens for non-viewers, so the verdict must be fresh —
+  // a removed member may keep reading up to the long TTL, but not pushing.
+  const installation = await ensureInstallationAccess({
+    installationId,
+    brokerSession,
+    requireAdmin: false,
+    requireFreshAccess: true,
+  });
   const readOnly = isReadOnlyInstallationAccess(installation);
   const token = await createInstallationAccessToken(
     installationId,
