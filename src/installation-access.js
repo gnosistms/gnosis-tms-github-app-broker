@@ -205,25 +205,26 @@ async function loadInstallationAccessDetailsUncached({
     };
   }
 
-  const membership = await loadOrganizationMembership(
-    installation.accountLogin,
-    brokerSession.accessToken,
-  );
-  const orgResponse = await githubApi(`/orgs/${installation.accountLogin}`, {
-    headers: {
-      Authorization: `Bearer ${brokerSession.accessToken}`,
-    },
-  });
-  const orgPayload = await orgResponse.json();
-  const installationToken = await createInstallationAccessToken(installationId);
-  const adminTeamMemberLogins = await listAdminTeamMemberLogins(
-    installation.accountLogin,
-    installationToken,
-  );
-  const viewerRoleLogins = await listViewerRoleLogins({
-    installationId,
-    orgLogin: installation.accountLogin,
-  });
+  // These lookups are independent once the org login is known; running them
+  // sequentially made every cold access check pay the sum of ~6 GitHub round trips
+  // (~4s). Concurrently the wall cost is the slowest branch (~1 round trip, two for
+  // the token -> admins-team chain when the token cache is cold).
+  const [membership, orgPayload, adminTeamMemberLogins, viewerRoleLogins] =
+    await Promise.all([
+      loadOrganizationMembership(installation.accountLogin, brokerSession.accessToken),
+      githubApi(`/orgs/${installation.accountLogin}`, {
+        headers: {
+          Authorization: `Bearer ${brokerSession.accessToken}`,
+        },
+      }).then((response) => response.json()),
+      createInstallationAccessToken(installationId).then((installationToken) =>
+        listAdminTeamMemberLogins(installation.accountLogin, installationToken)
+      ),
+      listViewerRoleLogins({
+        installationId,
+        orgLogin: installation.accountLogin,
+      }),
+    ]);
   const isOwner = membership.state === "active" && membership.role === "admin";
   const normalizedActorLogin = normalizeLogin(brokerSession.user.login);
   const isAppAdmin = isOwner || adminTeamMemberLogins.has(normalizedActorLogin);
