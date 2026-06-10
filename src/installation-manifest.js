@@ -7,6 +7,8 @@
 // webhooks reach one process; the TTL bounds staleness for anything else (missed
 // deliveries, a second instance, a misconfigured webhook).
 import { config } from "./config.js";
+import { clearInstallationTokenCache } from "./github-app.js";
+import { clearInstallationAccessCache } from "./installation-access.js";
 import {
   loadInstallationRepositoryContext,
   normalizeRepositoryKey,
@@ -77,6 +79,12 @@ export function applyWebhookEventToManifest(eventName, payload) {
 
   if (MANIFEST_DROP_EVENTS.has(eventName)) {
     manifestsByInstallationId.delete(installationId);
+    if (eventName === "installation" || eventName === "installation_repositories") {
+      // Membership/uninstall changes invalidate cached auth state too, not just the
+      // repo manifest.
+      clearInstallationAccessCache(installationId);
+      clearInstallationTokenCache(installationId);
+    }
     return "dropped";
   }
 

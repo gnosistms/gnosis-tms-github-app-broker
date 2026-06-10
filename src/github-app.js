@@ -97,7 +97,49 @@ export async function getInstallation(installationId) {
   };
 }
 
+// GitHub installation tokens are valid for one hour; minting a fresh one per request
+// added a sequential GitHub round trip to every authorized broker call. Cache per
+// installation and permission variant (a read-only transport token must never be
+// served where a full-permission token was requested, and vice versa), refreshed
+// five minutes before expiry. Webhook installation events clear the cache so an
+// uninstall does not leave dead tokens behind.
+const INSTALLATION_TOKEN_REFRESH_MARGIN_MS = 5 * 60 * 1000;
+const installationTokenCache = new Map();
+
+function installationTokenCacheKey(installationId, options) {
+  const permissions =
+    options?.permissions && typeof options.permissions === "object"
+      ? JSON.stringify(
+          Object.fromEntries(
+            Object.entries(options.permissions).sort(([left], [right]) =>
+              left.localeCompare(right)
+            ),
+          ),
+        )
+      : "";
+  return `${installationId}:${permissions}`;
+}
+
+export function clearInstallationTokenCache(installationId) {
+  const prefix = `${installationId}:`;
+  for (const key of installationTokenCache.keys()) {
+    if (key.startsWith(prefix)) {
+      installationTokenCache.delete(key);
+    }
+  }
+}
+
+export function resetInstallationTokenCacheForTests() {
+  installationTokenCache.clear();
+}
+
 export async function createInstallationAccessToken(installationId, options = {}) {
+  const cacheKey = installationTokenCacheKey(installationId, options);
+  const cached = installationTokenCache.get(cacheKey);
+  if (cached && Date.now() < cached.reuseUntil) {
+    return cached.token;
+  }
+
   const body = {};
   if (options?.permissions && typeof options.permissions === "object") {
     body.permissions = options.permissions;
@@ -113,6 +155,13 @@ export async function createInstallationAccessToken(installationId, options = {}
   });
 
   const payload = await response.json();
+  const expiresAt = Date.parse(payload.expires_at);
+  if (Number.isFinite(expiresAt)) {
+    installationTokenCache.set(cacheKey, {
+      token: payload.token,
+      reuseUntil: expiresAt - INSTALLATION_TOKEN_REFRESH_MARGIN_MS,
+    });
+  }
   return payload.token;
 }
 
