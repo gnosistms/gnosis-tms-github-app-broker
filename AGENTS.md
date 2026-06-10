@@ -47,6 +47,19 @@ npm run dev    # local server with watch (needs env vars; see src/config.js)
 npm test       # node --test src/*.test.js
 ```
 
+## Webhook manifest
+
+The combined `/gnosis-resources` listing serves from a per-installation in-memory
+manifest kept current by GitHub webhooks (`src/installation-manifest.js`,
+`src/webhook-routes.js`, `POST /webhooks/github`). The feature is dormant until
+`GITHUB_APP_WEBHOOK_SECRET` is set; configuration lives in three places that must
+agree: the DigitalOcean env var, the GitHub App webhook settings (URL
+`<PUBLIC_BASE_URL>/webhooks/github`, the same secret, content type
+application/json), and the App's event subscriptions (Push, Repository, Custom
+property values). A 10-minute TTL bounds staleness from missed deliveries. The
+manifest assumes a **single instance** — if the app is ever scaled out, extra
+instances fall back to TTL freshness.
+
 ## Scheduled cleanup
 
 - **Legacy listing endpoints** (`gnosis-projects`, `gnosis-glossaries`,

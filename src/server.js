@@ -8,6 +8,7 @@ import { registerInstallRoutes } from "./install-routes.js";
 import { registerProjectRoutes } from "./project-routes.js";
 import { registerQaListRoutes } from "./qa-list-routes.js";
 import { registerResourceRoutes } from "./resource-routes.js";
+import { registerWebhookRoutes } from "./webhook-routes.js";
 import { registerTeamAiRoutes } from "./team-ai-routes.js";
 
 export function createApp() {
@@ -29,6 +30,7 @@ export function createApp() {
   registerGlossaryRoutes(app);
   registerQaListRoutes(app);
   registerResourceRoutes(app);
+  registerWebhookRoutes(app);
   registerTeamAiRoutes(app);
 
   return app;
