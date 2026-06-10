@@ -29,7 +29,13 @@ export function computeResourceListingDigest({ projects, glossaries, qaLists }) 
 }
 
 export async function listGnosisResourcesForInstallation(installationId, brokerSession) {
-  await ensureInstallationAccess({ installationId, brokerSession, requireAdmin: false });
+  // The access verdict is computed to authorize this request anyway — return it so the
+  // app gets capabilities with the data instead of paying a separate blocking call.
+  const access = await ensureInstallationAccess({
+    installationId,
+    brokerSession,
+    requireAdmin: false,
+  });
   const installationToken = await createInstallationAccessToken(installationId);
   const context = await getInstallationRepositoryContext(installationId, installationToken);
 
@@ -41,6 +47,9 @@ export async function listGnosisResourcesForInstallation(installationId, brokerS
     projects,
     glossaries,
     qaLists,
+    // The digest intentionally excludes access: capability changes must not look like
+    // resource-list changes.
     digest: computeResourceListingDigest({ projects, glossaries, qaLists }),
+    access,
   };
 }
