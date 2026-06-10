@@ -9,14 +9,12 @@ import {
 import {
   createInstallationAccessToken,
   githubApi,
-  githubGraphql,
 } from "./github-app.js";
 import {
   assignInitialProjectProperties,
   deleteRepository,
   ensureRepositoryPropertiesSchema,
   isProjectRepository,
-  listOrganizationRepositoryPropertyValues,
 } from "./repo-properties.js";
 import {
   initializeProjectMetadata,
@@ -29,46 +27,14 @@ import {
   listProjectMetadataRecords as listProjectTeamMetadataRecords,
   upsertProjectMetadataRecord as upsertProjectTeamMetadataRecord,
 } from "./team-metadata-repo.js";
+import {
+  authHeaders,
+  loadInstallationRepositoryContext,
+  normalizeRepositoryKey,
+} from "./installation-repos.js";
 
-const INSTALLATION_REPOSITORIES_PER_PAGE = 100;
 const PROJECT_METADATA_CONCURRENCY = 10;
-const REPOSITORY_REMOTE_HEADS_QUERY = `
-  query RepositoryRemoteHeads($ids: [ID!]!) {
-    nodes(ids: $ids) {
-      ... on Repository {
-        id
-        nameWithOwner
-        defaultBranchRef {
-          name
-          target {
-            ... on Commit {
-              oid
-            }
-          }
-        }
-      }
-    }
-  }
-`;
 const PROJECT_LISTING_CACHE = new Map();
-
-function authHeaders(token) {
-  return {
-    Authorization: `Bearer ${token}`,
-  };
-}
-
-function normalizeRepositoryKey(value) {
-  return String(value || "").trim().toLowerCase();
-}
-
-function chunk(items, chunkSize) {
-  const chunks = [];
-  for (let index = 0; index < items.length; index += chunkSize) {
-    chunks.push(items.slice(index, index + chunkSize));
-  }
-  return chunks;
-}
 
 function repoCacheKey(fullName) {
   return normalizeRepositoryKey(fullName);
@@ -152,28 +118,6 @@ function saveCachedProjectMetadata(cache, fullName, remoteHeadOid, projectIdenti
   });
 }
 
-function deriveOrgLoginFromRepositories(repositories) {
-  for (const repository of repositories || []) {
-    const ownerLogin =
-      typeof repository?.owner?.login === "string" && repository.owner.login.trim()
-        ? repository.owner.login.trim()
-        : null;
-    if (ownerLogin) {
-      return ownerLogin;
-    }
-
-    const fullName =
-      typeof repository?.full_name === "string" && repository.full_name.trim()
-        ? repository.full_name.trim()
-        : null;
-    if (fullName && fullName.includes("/")) {
-      return fullName.split("/")[0];
-    }
-  }
-
-  return null;
-}
-
 function propertyRepositoryKey(entry) {
   if (!entry || typeof entry !== "object") {
     return null;
@@ -207,38 +151,6 @@ function propertyRepositoryKey(entry) {
   }
 
   return null;
-}
-
-function propertiesFromOrganizationEntry(entry) {
-  if (!entry || typeof entry !== "object") {
-    return [];
-  }
-
-  if (Array.isArray(entry.properties)) {
-    return entry.properties;
-  }
-
-  if (Array.isArray(entry.property_values)) {
-    return entry.property_values;
-  }
-
-  if (Array.isArray(entry.propertyValues)) {
-    return entry.propertyValues;
-  }
-
-  return [];
-}
-
-function buildOrgPropertyMap(entries) {
-  const map = new Map();
-  for (const entry of entries || []) {
-    const key = propertyRepositoryKey(entry);
-    if (!key) {
-      continue;
-    }
-    map.set(key, propertiesFromOrganizationEntry(entry));
-  }
-  return map;
 }
 
 async function mapWithConcurrency(items, concurrency, mapper) {
@@ -284,58 +196,6 @@ function projectFromRepository(
   };
 }
 
-async function listInstallationRepositoriesRaw(installationToken) {
-  const repositories = [];
-  let page = 1;
-
-  while (true) {
-    const response = await githubApi(
-      `/installation/repositories?per_page=${INSTALLATION_REPOSITORIES_PER_PAGE}&page=${page}`,
-      {
-        headers: authHeaders(installationToken),
-      },
-    );
-    const payload = await response.json();
-    const batch = payload.repositories || [];
-    repositories.push(...batch);
-
-    if (batch.length < INSTALLATION_REPOSITORIES_PER_PAGE) {
-      break;
-    }
-
-    page += 1;
-  }
-
-  return repositories;
-}
-
-async function loadRepositoryRemoteHeadsMap(repositories, installationToken) {
-  const nodeIds = repositories
-    .map((repository) => repository.node_id)
-    .filter((value) => typeof value === "string" && value.trim().length > 0);
-  const remoteHeadsByRepoKey = new Map();
-
-  for (const ids of chunk(nodeIds, 100)) {
-    const data = await githubGraphql(
-      REPOSITORY_REMOTE_HEADS_QUERY,
-      { ids },
-      { headers: authHeaders(installationToken) },
-    );
-    for (const node of data.nodes || []) {
-      if (!node || typeof node.nameWithOwner !== "string") {
-        continue;
-      }
-
-      remoteHeadsByRepoKey.set(normalizeRepositoryKey(node.nameWithOwner), {
-        defaultBranchName: node.defaultBranchRef?.name || null,
-        defaultBranchHeadOid: node.defaultBranchRef?.target?.oid || null,
-      });
-    }
-  }
-
-  return remoteHeadsByRepoKey;
-}
-
 export async function ensureGnosisRepoPropertiesSchema({
   installationId,
   orgLogin,
@@ -346,17 +206,9 @@ export async function ensureGnosisRepoPropertiesSchema({
   await ensureRepositoryPropertiesSchema(orgLogin, installationToken);
 }
 
-export async function listGnosisProjectsForInstallation(installationId, brokerSession) {
-  await ensureInstallationAccess({ installationId, brokerSession, requireAdmin: false });
-  const installationToken = await createInstallationAccessToken(installationId);
-  const repositories = await listInstallationRepositoriesRaw(installationToken);
-  const remoteHeadsByRepoKey = await loadRepositoryRemoteHeadsMap(repositories, installationToken);
+export async function assembleGnosisProjects({ installationId, installationToken, context }) {
+  const { repositories, remoteHeadsByRepoKey, orgPropertyMap } = context;
   const cache = pruneInstallationProjectCache(installationId, repositories);
-  const orgLogin = deriveOrgLoginFromRepositories(repositories);
-  const organizationPropertyValues = orgLogin
-    ? await listOrganizationRepositoryPropertyValues(orgLogin, installationToken)
-    : [];
-  const orgPropertyMap = buildOrgPropertyMap(organizationPropertyValues);
   const repositoryInfos = repositories.map((repository) => ({
     repository,
     isProject: isProjectRepository(
@@ -389,6 +241,13 @@ export async function listGnosisProjectsForInstallation(installationId, brokerSe
       );
     },
   );
+}
+
+export async function listGnosisProjectsForInstallation(installationId, brokerSession) {
+  await ensureInstallationAccess({ installationId, brokerSession, requireAdmin: false });
+  const installationToken = await createInstallationAccessToken(installationId);
+  const context = await loadInstallationRepositoryContext(installationToken);
+  return assembleGnosisProjects({ installationId, installationToken, context });
 }
 
 export async function getInstallationGitTransportToken({ installationId, brokerSession }) {

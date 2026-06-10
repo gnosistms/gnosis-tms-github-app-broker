@@ -2,58 +2,24 @@ import { ensureInstallationAccess } from "./installation-access.js";
 import {
   createInstallationAccessToken,
   githubApi,
-  githubGraphql,
 } from "./github-app.js";
 import {
   assignInitialGlossaryProperties,
   deleteRepository,
   ensureRepositoryPropertiesSchema,
   isGlossaryRepository,
-  listOrganizationRepositoryPropertyValues,
 } from "./repo-properties.js";
 import {
   deleteGlossaryMetadataRecord as deleteGlossaryTeamMetadataRecord,
   listGlossaryMetadataRecords as listGlossaryTeamMetadataRecords,
   upsertGlossaryMetadataRecord as upsertGlossaryTeamMetadataRecord,
 } from "./team-metadata-repo.js";
+import {
+  authHeaders,
+  loadInstallationRepositoryContext,
+  normalizeRepositoryKey,
+} from "./installation-repos.js";
 
-const INSTALLATION_REPOSITORIES_PER_PAGE = 100;
-const REPOSITORY_REMOTE_HEADS_QUERY = `
-  query RepositoryRemoteHeads($ids: [ID!]!) {
-    nodes(ids: $ids) {
-      ... on Repository {
-        id
-        nameWithOwner
-        defaultBranchRef {
-          name
-          target {
-            ... on Commit {
-              oid
-            }
-          }
-        }
-      }
-    }
-  }
-`;
-
-function authHeaders(token) {
-  return {
-    Authorization: `Bearer ${token}`,
-  };
-}
-
-function normalizeRepositoryKey(value) {
-  return String(value || "").trim().toLowerCase();
-}
-
-function chunk(items, chunkSize) {
-  const chunks = [];
-  for (let index = 0; index < items.length; index += chunkSize) {
-    chunks.push(items.slice(index, index + chunkSize));
-  }
-  return chunks;
-}
 
 function propertyRepositoryKey(entry) {
   if (!entry || typeof entry !== "object") {
@@ -90,60 +56,6 @@ function propertyRepositoryKey(entry) {
   return null;
 }
 
-function propertiesFromOrganizationEntry(entry) {
-  if (!entry || typeof entry !== "object") {
-    return [];
-  }
-
-  if (Array.isArray(entry.properties)) {
-    return entry.properties;
-  }
-
-  if (Array.isArray(entry.property_values)) {
-    return entry.property_values;
-  }
-
-  if (Array.isArray(entry.propertyValues)) {
-    return entry.propertyValues;
-  }
-
-  return [];
-}
-
-function buildOrgPropertyMap(entries) {
-  const map = new Map();
-  for (const entry of entries || []) {
-    const key = propertyRepositoryKey(entry);
-    if (!key) {
-      continue;
-    }
-    map.set(key, propertiesFromOrganizationEntry(entry));
-  }
-  return map;
-}
-
-function deriveOrgLoginFromRepositories(repositories) {
-  for (const repository of repositories || []) {
-    const ownerLogin =
-      typeof repository?.owner?.login === "string" && repository.owner.login.trim()
-        ? repository.owner.login.trim()
-        : null;
-    if (ownerLogin) {
-      return ownerLogin;
-    }
-
-    const fullName =
-      typeof repository?.full_name === "string" && repository.full_name.trim()
-        ? repository.full_name.trim()
-        : null;
-    if (fullName && fullName.includes("/")) {
-      return fullName.split("/")[0];
-    }
-  }
-
-  return null;
-}
-
 function glossaryFromRepository(repository, remoteHead = null) {
   return {
     repoId: repository.id,
@@ -158,69 +70,8 @@ function glossaryFromRepository(repository, remoteHead = null) {
   };
 }
 
-async function listInstallationRepositoriesRaw(installationToken) {
-  const repositories = [];
-  let page = 1;
-
-  while (true) {
-    const response = await githubApi(
-      `/installation/repositories?per_page=${INSTALLATION_REPOSITORIES_PER_PAGE}&page=${page}`,
-      {
-        headers: authHeaders(installationToken),
-      },
-    );
-    const payload = await response.json();
-    const batch = payload.repositories || [];
-    repositories.push(...batch);
-
-    if (batch.length < INSTALLATION_REPOSITORIES_PER_PAGE) {
-      break;
-    }
-
-    page += 1;
-  }
-
-  return repositories;
-}
-
-async function loadRepositoryRemoteHeadsMap(repositories, installationToken) {
-  const nodeIds = repositories
-    .map((repository) => repository.node_id)
-    .filter((value) => typeof value === "string" && value.trim().length > 0);
-  const remoteHeadsByRepoKey = new Map();
-
-  for (const ids of chunk(nodeIds, 100)) {
-    const data = await githubGraphql(
-      REPOSITORY_REMOTE_HEADS_QUERY,
-      { ids },
-      { headers: authHeaders(installationToken) },
-    );
-    for (const node of data.nodes || []) {
-      if (!node || typeof node.nameWithOwner !== "string") {
-        continue;
-      }
-
-      remoteHeadsByRepoKey.set(normalizeRepositoryKey(node.nameWithOwner), {
-        defaultBranchName: node.defaultBranchRef?.name || null,
-        defaultBranchHeadOid: node.defaultBranchRef?.target?.oid || null,
-      });
-    }
-  }
-
-  return remoteHeadsByRepoKey;
-}
-
-export async function listGnosisGlossariesForInstallation(installationId, brokerSession) {
-  await ensureInstallationAccess({ installationId, brokerSession, requireAdmin: false });
-  const installationToken = await createInstallationAccessToken(installationId);
-  const repositories = await listInstallationRepositoriesRaw(installationToken);
-  const remoteHeadsByRepoKey = await loadRepositoryRemoteHeadsMap(repositories, installationToken);
-  const orgLogin = deriveOrgLoginFromRepositories(repositories);
-  const organizationPropertyValues = orgLogin
-    ? await listOrganizationRepositoryPropertyValues(orgLogin, installationToken)
-    : [];
-  const orgPropertyMap = buildOrgPropertyMap(organizationPropertyValues);
-
+export function assembleGnosisGlossaries(context) {
+  const { repositories, remoteHeadsByRepoKey, orgPropertyMap } = context;
   return repositories
     .filter((repository) =>
       isGlossaryRepository(orgPropertyMap.get(normalizeRepositoryKey(repository.full_name)) || [])
@@ -231,6 +82,12 @@ export async function listGnosisGlossariesForInstallation(installationId, broker
         remoteHeadsByRepoKey.get(normalizeRepositoryKey(repository.full_name)) || null,
       )
     );
+}
+
+export async function listGnosisGlossariesForInstallation(installationId, brokerSession) {
+  await ensureInstallationAccess({ installationId, brokerSession, requireAdmin: false });
+  const installationToken = await createInstallationAccessToken(installationId);
+  return assembleGnosisGlossaries(await loadInstallationRepositoryContext(installationToken));
 }
 
 export async function createGnosisGlossaryRepo({
