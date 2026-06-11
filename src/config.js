@@ -43,6 +43,8 @@ export const config = {
   githubAppWebhookSecret: optional("GITHUB_APP_WEBHOOK_SECRET"),
   brokerToken: optional("BROKER_TOKEN"),
   brokerSessionTtlDays: parsePositiveInteger("BROKER_SESSION_TTL_DAYS", 90),
+  wordpressClientId: optional("WORDPRESS_CLIENT_ID"),
+  wordpressClientSecret: optional("WORDPRESS_CLIENT_SECRET"),
   teamAiBrokerPrivateKey: optional("TEAM_AI_BROKER_PRIVATE_KEY").replace(/\\n/g, "\n"),
   teamAiBrokerPublicKey: optional("TEAM_AI_BROKER_PUBLIC_KEY").replace(/\\n/g, "\n"),
   allowedDesktopCallbackPrefixes: parseAllowedDesktopPrefixes(

@@ -10,6 +10,7 @@ import { registerQaListRoutes } from "./qa-list-routes.js";
 import { registerResourceRoutes } from "./resource-routes.js";
 import { registerWebhookRoutes } from "./webhook-routes.js";
 import { registerTeamAiRoutes } from "./team-ai-routes.js";
+import { registerWordpressAuthRoutes } from "./wordpress-auth-routes.js";
 
 export function createApp() {
   const app = express();
@@ -25,6 +26,7 @@ export function createApp() {
   });
 
   registerAuthRoutes(app, { renderRedirectPage });
+  registerWordpressAuthRoutes(app, { renderRedirectPage });
   registerInstallRoutes(app, { renderRedirectPage });
   registerProjectRoutes(app);
   registerGlossaryRoutes(app);
