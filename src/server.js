@@ -1,4 +1,5 @@
 import express from "express";
+import { createRequire } from "node:module";
 import { pathToFileURL } from "node:url";
 
 import { config } from "./config.js";
@@ -12,6 +13,10 @@ import { registerWebhookRoutes } from "./webhook-routes.js";
 import { registerTeamAiRoutes } from "./team-ai-routes.js";
 import { registerWordpressAuthRoutes } from "./wordpress-auth-routes.js";
 
+// Deploys are confirmed by reading the version back from /health (DigitalOcean
+// gives no other externally visible marker of which commit is serving).
+const packageVersion = createRequire(import.meta.url)("../package.json").version;
+
 export function createApp() {
   const app = express();
 
@@ -22,6 +27,7 @@ export function createApp() {
     response.json({
       ok: true,
       app: "gnosis-tms-github-app-broker",
+      version: packageVersion,
     });
   });
 
