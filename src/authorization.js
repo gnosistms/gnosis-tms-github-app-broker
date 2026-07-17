@@ -1,3 +1,4 @@
+import { config } from "./config.js";
 import { githubApi, createInstallationAccessToken } from "./github-app.js";
 import {
   authHeaders,
@@ -258,6 +259,45 @@ export async function listAuthorizedOrganizations(brokerSession) {
   return details;
 }
 
+// When per-installation enrichment fails (a transient GitHub 5xx on one of its
+// sub-requests), the installation must still be returned — dropping it makes the
+// response indistinguishable from the app having been uninstalled, and clients
+// prune their caches accordingly (the 2026-07-14 disappearing-teams incident).
+// The degraded entry carries the summary fields GitHub already gave us, no
+// capabilities, and an accessDetailsError marker so clients can keep their cached
+// record instead of trusting the degraded one.
+function buildDegradedInstallationEntry(summary, reason) {
+  if (!Number.isFinite(summary?.id)) {
+    return null;
+  }
+  return {
+    installationId: summary.id,
+    accountLogin: summary.account?.login || "",
+    accountId: summary.account?.id || null,
+    accountType: summary.account?.type || "",
+    accountAvatarUrl: summary.account?.avatar_url || null,
+    accountHtmlUrl: summary.account?.html_url || null,
+    installationHtmlUrl: summary.html_url || null,
+    appSlug: summary.app_slug || config.githubAppSlug,
+    targetType: summary.target_type || summary.account?.type || "",
+    permissions: summary.permissions || {},
+    accountName: null,
+    description: null,
+    membershipState: "unknown",
+    membershipRole: null,
+    canDelete: false,
+    canManageMembers: false,
+    canManageProjects: false,
+    canLeave: false,
+    appApprovalUrl: null,
+    appRequestUrl: null,
+    accessDetailsError:
+      typeof reason?.message === "string" && reason.message
+        ? reason.message
+        : "Could not load installation access details.",
+  };
+}
+
 export async function listAccessibleInstallations(brokerSession) {
   const response = await githubApi("/user/installations?per_page=100", {
     headers: {
@@ -278,8 +318,17 @@ export async function listAccessibleInstallations(brokerSession) {
   );
 
   return results
-    .filter((result) => result.status === "fulfilled")
-    .map((result) => result.value);
+    .map((result, index) => {
+      if (result.status === "fulfilled") {
+        return result.value;
+      }
+      const summary = installations[index];
+      console.error(
+        `Installation access enrichment failed for ${summary?.id} (${summary?.account?.login}): ${result.reason?.message ?? result.reason}`,
+      );
+      return buildDegradedInstallationEntry(summary, result.reason);
+    })
+    .filter(Boolean);
 }
 
 export async function listInstallationMembers(installationId, orgLogin, brokerSession) {

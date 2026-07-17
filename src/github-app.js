@@ -20,28 +20,68 @@ export function githubAppJwt() {
   );
 }
 
-export async function githubApi(path, options = {}) {
-  const response = await fetch(`https://api.github.com${path}`, {
-    ...options,
-    headers: {
-      Accept: "application/vnd.github+json",
-      "X-GitHub-Api-Version": GITHUB_API_VERSION,
-      "User-Agent": "gnosis-tms-github-app-broker",
-      ...(options.headers || {}),
-    },
-  });
+// GitHub intermittently serves transient 5xx errors ("Unicorn!" pages). Idempotent
+// reads are retried with a short backoff so one dropped sub-request cannot ripple
+// into a wrong answer — most critically a silently shortened installations listing
+// (the 2026-07-14 disappearing-teams incident). Writes are never retried: a replayed
+// mutation could double-apply.
+const GITHUB_RETRYABLE_STATUSES = new Set([500, 502, 503, 504]);
+const GITHUB_RETRY_DELAYS_MS = [500, 2000];
+const GITHUB_RETRY_AFTER_CAP_MS = 3000;
 
-  if (!response.ok) {
-    const body = await response.text();
-    const error = new Error(
-      parseGithubError(response.status, body || response.statusText),
-    );
-    error.githubStatus = response.status;
-    error.githubBody = body;
-    throw error;
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function githubRetryDelayMs(response, attempt) {
+  const retryAfterSeconds = Number(response?.headers?.get?.("retry-after"));
+  if (Number.isFinite(retryAfterSeconds) && retryAfterSeconds >= 0) {
+    return Math.min(retryAfterSeconds * 1000, GITHUB_RETRY_AFTER_CAP_MS);
   }
+  return GITHUB_RETRY_DELAYS_MS[attempt];
+}
 
-  return response;
+export async function githubApi(path, options = {}) {
+  const method = String(options.method || "GET").toUpperCase();
+  const maxRetries =
+    method === "GET" || method === "HEAD" ? GITHUB_RETRY_DELAYS_MS.length : 0;
+
+  for (let attempt = 0; ; attempt += 1) {
+    let response;
+    try {
+      response = await fetch(`https://api.github.com${path}`, {
+        ...options,
+        headers: {
+          Accept: "application/vnd.github+json",
+          "X-GitHub-Api-Version": GITHUB_API_VERSION,
+          "User-Agent": "gnosis-tms-github-app-broker",
+          ...(options.headers || {}),
+        },
+      });
+    } catch (networkError) {
+      if (attempt < maxRetries) {
+        await sleep(GITHUB_RETRY_DELAYS_MS[attempt]);
+        continue;
+      }
+      throw networkError;
+    }
+
+    if (!response.ok) {
+      if (attempt < maxRetries && GITHUB_RETRYABLE_STATUSES.has(response.status)) {
+        await sleep(githubRetryDelayMs(response, attempt));
+        continue;
+      }
+      const body = await response.text();
+      const error = new Error(
+        parseGithubError(response.status, body || response.statusText),
+      );
+      error.githubStatus = response.status;
+      error.githubBody = body;
+      throw error;
+    }
+
+    return response;
+  }
 }
 
 export async function githubGraphql(query, variables = {}, options = {}) {
