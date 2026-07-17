@@ -20,11 +20,13 @@ export function githubAppJwt() {
   );
 }
 
-// GitHub intermittently serves transient 5xx errors ("Unicorn!" pages). Idempotent
-// reads are retried with a short backoff so one dropped sub-request cannot ripple
-// into a wrong answer — most critically a silently shortened installations listing
-// (the 2026-07-14 disappearing-teams incident). Writes are never retried: a replayed
-// mutation could double-apply.
+// GitHub intermittently serves transient 5xx errors ("Unicorn!" pages). Retries are
+// OPT-IN per call (options.retries) and only honored for idempotent GET/HEAD requests.
+// They exist for the top-level installations listing, whose failure would otherwise
+// look like teams disappearing (the 2026-07-14 incident). Per-installation enrichment
+// sub-requests must NOT retry: they fail fast into a degraded listing entry instead,
+// and stacked backoff there would push the response past the desktop's 30s client
+// timeout while multiplying request volume against an already-degraded upstream.
 const GITHUB_RETRYABLE_STATUSES = new Set([500, 502, 503, 504]);
 const GITHUB_RETRY_DELAYS_MS = [500, 2000];
 const GITHUB_RETRY_AFTER_CAP_MS = 3000;
@@ -34,28 +36,41 @@ function sleep(ms) {
 }
 
 function githubRetryDelayMs(response, attempt) {
-  const retryAfterSeconds = Number(response?.headers?.get?.("retry-after"));
+  const retryAfterHeader = response?.headers?.get?.("retry-after");
+  const retryAfterSeconds =
+    typeof retryAfterHeader === "string" && retryAfterHeader.trim() !== ""
+      ? Number(retryAfterHeader)
+      : NaN;
   if (Number.isFinite(retryAfterSeconds) && retryAfterSeconds >= 0) {
     return Math.min(retryAfterSeconds * 1000, GITHUB_RETRY_AFTER_CAP_MS);
   }
-  return GITHUB_RETRY_DELAYS_MS[attempt];
+  return GITHUB_RETRY_DELAYS_MS[attempt] ?? GITHUB_RETRY_DELAYS_MS.at(-1);
+}
+
+async function discardResponseBody(response) {
+  try {
+    await response.body?.cancel();
+  } catch {}
 }
 
 export async function githubApi(path, options = {}) {
-  const method = String(options.method || "GET").toUpperCase();
+  const { retries, ...fetchOptions } = options;
+  const method = String(fetchOptions.method || "GET").toUpperCase();
   const maxRetries =
-    method === "GET" || method === "HEAD" ? GITHUB_RETRY_DELAYS_MS.length : 0;
+    method === "GET" || method === "HEAD"
+      ? Math.min(Number(retries) || 0, GITHUB_RETRY_DELAYS_MS.length)
+      : 0;
 
   for (let attempt = 0; ; attempt += 1) {
     let response;
     try {
       response = await fetch(`https://api.github.com${path}`, {
-        ...options,
+        ...fetchOptions,
         headers: {
           Accept: "application/vnd.github+json",
           "X-GitHub-Api-Version": GITHUB_API_VERSION,
           "User-Agent": "gnosis-tms-github-app-broker",
-          ...(options.headers || {}),
+          ...(fetchOptions.headers || {}),
         },
       });
     } catch (networkError) {
@@ -68,6 +83,9 @@ export async function githubApi(path, options = {}) {
 
     if (!response.ok) {
       if (attempt < maxRetries && GITHUB_RETRYABLE_STATUSES.has(response.status)) {
+        // An abandoned body pins its pooled undici socket until GC; release it
+        // before retrying so brownout retries don't exhaust the connection pool.
+        await discardResponseBody(response);
         await sleep(githubRetryDelayMs(response, attempt));
         continue;
       }
@@ -115,14 +133,11 @@ export function parseGithubError(status, body) {
   return `GitHub API ${status}: ${body}`;
 }
 
-export async function getInstallation(installationId) {
-  const response = await githubApi(`/app/installations/${installationId}`, {
-    headers: {
-      Authorization: `Bearer ${githubAppJwt()}`,
-    },
-  });
-
-  const installation = await response.json();
+// Shared normalization of GitHub's raw installation shape (/app/installations/:id
+// and the entries of /user/installations are the same shape). Degraded listing
+// entries are built from this too, so healthy and degraded entries can never
+// diverge on the summary fields.
+export function normalizeInstallationSummary(installation) {
   return {
     installationId: installation.id,
     accountLogin: installation.account?.login || "",
@@ -135,6 +150,17 @@ export async function getInstallation(installationId) {
     targetType: installation.target_type || installation.account?.type || "",
     permissions: installation.permissions || {},
   };
+}
+
+export async function getInstallation(installationId) {
+  const response = await githubApi(`/app/installations/${installationId}`, {
+    headers: {
+      Authorization: `Bearer ${githubAppJwt()}`,
+    },
+  });
+
+  const installation = await response.json();
+  return normalizeInstallationSummary(installation);
 }
 
 // GitHub installation tokens are valid for one hour; minting a fresh one per request

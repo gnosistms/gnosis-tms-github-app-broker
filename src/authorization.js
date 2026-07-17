@@ -1,5 +1,8 @@
-import { config } from "./config.js";
-import { githubApi, createInstallationAccessToken } from "./github-app.js";
+import {
+  createInstallationAccessToken,
+  githubApi,
+  normalizeInstallationSummary,
+} from "./github-app.js";
 import {
   authHeaders,
   ensureAdminsTeamExists,
@@ -271,16 +274,7 @@ function buildDegradedInstallationEntry(summary, reason) {
     return null;
   }
   return {
-    installationId: summary.id,
-    accountLogin: summary.account?.login || "",
-    accountId: summary.account?.id || null,
-    accountType: summary.account?.type || "",
-    accountAvatarUrl: summary.account?.avatar_url || null,
-    accountHtmlUrl: summary.account?.html_url || null,
-    installationHtmlUrl: summary.html_url || null,
-    appSlug: summary.app_slug || config.githubAppSlug,
-    targetType: summary.target_type || summary.account?.type || "",
-    permissions: summary.permissions || {},
+    ...normalizeInstallationSummary(summary),
     accountName: null,
     description: null,
     membershipState: "unknown",
@@ -299,7 +293,11 @@ function buildDegradedInstallationEntry(summary, reason) {
 }
 
 export async function listAccessibleInstallations(brokerSession) {
+  // The top-level listing is the one request whose failure loses data (clients
+  // can't tell "listing failed" from "no teams"), so it alone retries transient
+  // 5xx. Enrichment sub-requests fail fast into degraded entries instead.
   const response = await githubApi("/user/installations?per_page=100", {
+    retries: 2,
     headers: {
       Authorization: `Bearer ${brokerSession.accessToken}`,
     },

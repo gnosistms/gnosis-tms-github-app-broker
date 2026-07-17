@@ -156,7 +156,7 @@ test("a failed enrichment yields a degraded entry instead of dropping the instal
   assert.match(loggedErrors[0], /broken-org/);
 });
 
-test("githubApi retries an idempotent GET on transient 5xx", async () => {
+test("githubApi retries a GET on transient 5xx when retries are requested", async () => {
   let attempts = 0;
   globalThis.fetch = async () => {
     attempts += 1;
@@ -166,14 +166,25 @@ test("githubApi retries an idempotent GET on transient 5xx", async () => {
     return githubResponse({ ok: true });
   };
 
-  const response = await githubApi("/user/installations?per_page=100");
+  const response = await githubApi("/user/installations?per_page=100", { retries: 2 });
   const payload = await response.json();
 
   assert.equal(attempts, 2);
   assert.equal(payload.ok, true);
 });
 
-test("githubApi does not retry a POST on 5xx", async () => {
+test("githubApi does not retry by default", async () => {
+  let attempts = 0;
+  globalThis.fetch = async () => {
+    attempts += 1;
+    return githubResponse({ message: "Unicorn!" }, 503);
+  };
+
+  await assert.rejects(githubApi("/orgs/some-org"), /GitHub API 503/);
+  assert.equal(attempts, 1);
+});
+
+test("githubApi does not retry a POST on 5xx even when retries are requested", async () => {
   let attempts = 0;
   globalThis.fetch = async () => {
     attempts += 1;
@@ -181,10 +192,29 @@ test("githubApi does not retry a POST on 5xx", async () => {
   };
 
   await assert.rejects(
-    githubApi("/app/installations/42/access_tokens", { method: "POST" }),
+    githubApi("/app/installations/42/access_tokens", { method: "POST", retries: 2 }),
     /GitHub API 503/,
   );
   assert.equal(attempts, 1);
+});
+
+test("githubApi backs off between retries when Retry-After is absent", async () => {
+  let attempts = 0;
+  const startedAt = Date.now();
+  globalThis.fetch = async () => {
+    attempts += 1;
+    if (attempts === 1) {
+      // No Retry-After header — the common brownout case must still back off
+      // (a missing header parsed as Number(null) === 0 once meant zero delay).
+      return githubResponse({ message: "Unicorn!" }, 503);
+    }
+    return githubResponse({ ok: true });
+  };
+
+  await githubApi("/user/installations?per_page=100", { retries: 2 });
+
+  assert.equal(attempts, 2);
+  assert.ok(Date.now() - startedAt >= 500, "expected at least the first backoff delay");
 });
 
 test("githubApi surfaces the original error after retries are exhausted", async () => {
@@ -194,7 +224,7 @@ test("githubApi surfaces the original error after retries are exhausted", async 
     return githubResponse({ message: "Unicorn!" }, 503, { "retry-after": "0" });
   };
 
-  await assert.rejects(githubApi("/rate-limited"), (error) => {
+  await assert.rejects(githubApi("/rate-limited", { retries: 2 }), (error) => {
     assert.equal(error.githubStatus, 503);
     return true;
   });
