@@ -23,7 +23,7 @@ function wordpressOauthCallbackUrl() {
 
 // No `scope` parameter: the default WordPress.com token is scoped to the single
 // blog the user authorizes, which is all the desktop export needs.
-export function buildWordpressOauthStartUrl(desktopRedirectUri, desktopState) {
+export function buildWordpressOauthStartUrl(desktopRedirectUri, desktopState, blog = "") {
   ensureWordpressOauthConfigured();
 
   const state = encodeInstallState({
@@ -37,6 +37,9 @@ export function buildWordpressOauthStartUrl(desktopRedirectUri, desktopState) {
   url.searchParams.set("redirect_uri", wordpressOauthCallbackUrl());
   url.searchParams.set("response_type", "code");
   url.searchParams.set("state", state);
+  if (String(blog).trim()) {
+    url.searchParams.set("blog", String(blog).trim());
+  }
   return url.toString();
 }
 
