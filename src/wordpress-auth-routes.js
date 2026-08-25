@@ -9,6 +9,7 @@ import { asyncJsonRoute, asyncTextRoute } from "./route-helpers.js";
 export function registerWordpressAuthRoutes(app, { renderRedirectPage }) {
   app.get("/auth/wordpress/start", asyncJsonRoute(async (request, response) => {
     const desktopState = String(request.query.state || "").trim();
+    const blog = String(request.query.blog || "").trim();
     const desktopRedirectUri = validateWordpressDesktopRedirectUri(
       String(request.query.desktop_redirect_uri || "").trim(),
     );
@@ -20,7 +21,7 @@ export function registerWordpressAuthRoutes(app, { renderRedirectPage }) {
 
     renderRedirectPage(
       response,
-      buildWordpressOauthStartUrl(desktopRedirectUri, desktopState),
+      buildWordpressOauthStartUrl(desktopRedirectUri, desktopState, blog),
       "Redirecting To WordPress.com",
       "Gnosis TMS is opening WordPress.com so you can authorize the app and continue.",
       "Opening WordPress.com now...",

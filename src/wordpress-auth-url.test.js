@@ -50,6 +50,15 @@ test("WordPress OAuth start URL targets the code flow with broker callback", () 
   assert.equal(state.desktopState, "desktop-state");
 });
 
+test("WordPress OAuth start URL pins authorization to the requested blog", () => {
+  const authUrl = new URL(buildWordpressOauthStartUrl(
+    "http://127.0.0.1:45873/wordpress/auth/callback",
+    "desktop-state",
+    "https://example.wordpress.com",
+  ));
+  assert.equal(authUrl.searchParams.get("blog"), "https://example.wordpress.com");
+});
+
 test("WordPress OAuth start URL fails clearly when not configured", () => {
   const previousClientId = config.wordpressClientId;
   config.wordpressClientId = "";
