@@ -28,9 +28,9 @@ user-facing interface or API documentation; it must point to the source of the
 version actually deployed, including your changes and build/install scripts.
 A link to the upstream repository alone is insufficient for a modified fork.
 
-Contributions are distributed under AGPL-3.0-only. The project's existing
-[Contributor License Agreement](https://github.com/gnosistms/Gnosis-TMS-tauri-app/blob/main/CLA.md)
-covers both repositories and separately grants the maintainer relicensing rights.
+Contributions are submitted under AGPL-3.0-only with a Developer Certificate of
+Origin sign-off. Contributors retain their copyright; no CLA is required for
+new contributions. See [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## Overview
 
