@@ -2,6 +2,38 @@
 
 Small Node/Express broker for the Gnosis TMS desktop app.
 
+## License
+
+Copyright (c) 2026 Hans Anderson and contributors.
+
+This broker is free software: you can redistribute it and/or modify it under the
+terms of the GNU Affero General Public License, version 3 only, as published by
+the Free Software Foundation (`AGPL-3.0-only`). See [LICENSE](LICENSE) for the
+complete text.
+
+This broker is distributed in the hope that it will be useful, but WITHOUT ANY
+WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR A
+PARTICULAR PURPOSE. See the GNU Affero General Public License for more details.
+
+Commercial and noncommercial use are permitted under this license without a
+separate paid commercial license. Third-party dependencies retain their own
+licenses and notices. The separate desktop app is licensed under GPLv3 only
+(`GPL-3.0-only`).
+
+Source is available at <https://github.com/gnosistms/gnosis-tms-github-app-broker>.
+If you modify this broker and run it as a network service, AGPLv3 section 13
+requires a prominent offer to all remote users to obtain the corresponding
+source of your version at no charge. Expose a source link through your service's
+user-facing interface or API documentation; it must point to the source of the
+version actually deployed, including your changes and build/install scripts.
+A link to the upstream repository alone is insufficient for a modified fork.
+
+Contributions are distributed under AGPL-3.0-only. The project's existing
+[Contributor License Agreement](https://github.com/gnosistms/Gnosis-TMS-tauri-app/blob/main/CLA.md)
+covers both repositories and separately grants the maintainer relicensing rights.
+
+## Overview
+
 This service uses the GitHub App for both user authorization and installation access:
 
 - GitHub App user authorization authenticates the human user to the broker
