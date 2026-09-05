@@ -1,3 +1,4 @@
+import { randomBytes } from "node:crypto";
 import {
   ensureInstallationAccess,
   isReadOnlyInstallationAccess,
@@ -28,6 +29,10 @@ export const teamAiDependencies = {
   getTeamAiSettingsRecord,
   putTeamAiSecretsRecord,
   putTeamAiSettingsRecord,
+  // Opaque 53-bit revision: safe in released JS/Rust clients and independent of
+  // deleted metadata or broker restarts. Collisions are negligible; never reuse
+  // the currently stored revision even if the random source returns it.
+  createKeyVersion: () => Number(randomBytes(8).readBigUInt64BE() & 0x1fffffffffffffn),
 };
 
 function normalizeProviderId(providerId) {
@@ -149,11 +154,13 @@ export async function saveTeamAiProviderSecretForInstallation({
     const normalizedWrappedKey = teamAiDependencies.normalizeWrappedKeyRecord(wrappedKey);
     teamAiDependencies.decryptWrappedKeyForBroker(normalizedWrappedKey);
 
-    const previousKeyVersion = Number.isInteger(currentRecord.providers[normalizedProviderId]?.keyVersion)
-      ? currentRecord.providers[normalizedProviderId].keyVersion
-      : 0;
+    const previousKeyVersion = currentRecord.providers[normalizedProviderId]?.keyVersion;
+    let keyVersion;
+    do {
+      keyVersion = teamAiDependencies.createKeyVersion();
+    } while (keyVersion === 0 || keyVersion === previousKeyVersion);
     nextProviders[normalizedProviderId] = {
-      keyVersion: previousKeyVersion + 1,
+      keyVersion,
       rotationReason: "manual",
       brokerWrappedKey: normalizedWrappedKey,
     };

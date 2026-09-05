@@ -210,9 +210,10 @@ test("putTeamAiSecretsRecord deletes ai/secrets.json when the last provider is c
 });
 
 test("saveTeamAiProviderSecretForInstallation saves and clears provider secrets", async (t) => {
-  await t.test("save persists the wrapped key and increments the version", async () => {
+  await t.test("save persists the wrapped key with a fresh numeric revision", async () => {
     let persistedRecord = null;
     const restore = replaceDependencies(teamAiDependencies, {
+      createKeyVersion: () => Number.MAX_SAFE_INTEGER,
       ensureInstallationAccess: async () => ({
         accountLogin: "team-one",
       }),
@@ -255,7 +256,7 @@ test("saveTeamAiProviderSecretForInstallation saves and clears provider secrets"
         },
       });
 
-      assert.equal(persistedRecord.providers.openai.keyVersion, 1);
+      assert.equal(persistedRecord.providers.openai.keyVersion, Number.MAX_SAFE_INTEGER);
       assert.deepEqual(persistedRecord.providers.openai.brokerWrappedKey, {
         algorithm: TEAM_AI_WRAPPED_KEY_ALGORITHM,
         ciphertext: "ciphertext-new",
@@ -267,7 +268,7 @@ test("saveTeamAiProviderSecretForInstallation saves and clears provider secrets"
         providers: {
           openai: {
             configured: true,
-            keyVersion: 1,
+            keyVersion: Number.MAX_SAFE_INTEGER,
             algorithm: TEAM_AI_WRAPPED_KEY_ALGORITHM,
           },
         },
@@ -335,6 +336,95 @@ test("saveTeamAiProviderSecretForInstallation saves and clears provider secrets"
       restore();
     }
   });
+});
+
+test("clear and re-add issues a different revision even after deleting the last secrets file", async () => {
+  let file = null;
+  let deletes = 0;
+  const revisions = [8_000_000_000_001, 8_000_000_000_002];
+  const restoreAi = replaceDependencies(teamAiDependencies, {
+    ensureInstallationAccess: async () => ({ accountLogin: "team-one" }),
+    normalizeWrappedKeyRecord: (key) => key,
+    decryptWrappedKeyForBroker: () => "synthetic-key",
+    createKeyVersion: () => revisions.shift(),
+  });
+  const restoreMetadata = replaceDependencies(teamAiMetadataDependencies, {
+    createInstallationAccessToken: async () => "synthetic-installation-token",
+    githubApi: async (path, options = {}) => {
+      if (path === "/repos/team-one/team-metadata") {
+        return jsonResponse({ full_name: "team-one/team-metadata" });
+      }
+      assert.equal(path, "/repos/team-one/team-metadata/contents/ai/secrets.json");
+      if (options.method === "PUT") {
+        const body = JSON.parse(options.body);
+        file = JSON.parse(Buffer.from(body.content, "base64").toString("utf8"));
+        return jsonResponse({});
+      }
+      if (options.method === "DELETE") {
+        deletes += 1;
+        file = null;
+        return jsonResponse({});
+      }
+      if (!file) throw Object.assign(new Error("Not found"), { githubStatus: 404 });
+      return jsonResponse({ encoding: "base64", sha: "synthetic-sha", content: Buffer.from(JSON.stringify(file)).toString("base64") });
+    },
+  });
+  const args = {
+    installationId: 42,
+    orgLogin: "team-one",
+    providerId: "openai",
+    brokerSession: { user: { login: "owner" } },
+  };
+  try {
+    const first = await saveTeamAiProviderSecretForInstallation({
+      ...args, wrappedKey: { algorithm: TEAM_AI_WRAPPED_KEY_ALGORITHM, ciphertext: "first-key" },
+    });
+    const cleared = await saveTeamAiProviderSecretForInstallation({ ...args, clear: true });
+    assert.deepEqual(cleared.providers, {});
+    assert.equal(file, null);
+    assert.equal(deletes, 1);
+    // No provider record/counter survives deletion. The next save also works on
+    // a new broker process that has no memory of the first key.
+    const second = await saveTeamAiProviderSecretForInstallation({
+      ...args, wrappedKey: { algorithm: TEAM_AI_WRAPPED_KEY_ALGORITHM, ciphertext: "second-key" },
+    });
+    assert.notEqual(first.providers.openai.keyVersion, second.providers.openai.keyVersion);
+    assert.equal(file.providers.openai.keyVersion, second.providers.openai.keyVersion);
+    assert.equal(file.providers.openai.brokerWrappedKey.ciphertext, "second-key");
+  } finally {
+    restoreMetadata();
+    restoreAi();
+  }
+});
+
+test("new revisions skip zero and the current version and retain numeric compatibility", async () => {
+  // Also check the production generator's range, independent of metadata/state.
+  for (let index = 0; index < 100; index += 1) {
+    const revision = teamAiDependencies.createKeyVersion();
+    assert.ok(Number.isSafeInteger(revision) && revision >= 0);
+  }
+  const revisions = [0, 7, Number.MAX_SAFE_INTEGER];
+  const restore = replaceDependencies(teamAiDependencies, {
+    ensureInstallationAccess: async () => ({ accountLogin: "team-one" }),
+    normalizeWrappedKeyRecord: (key) => key,
+    decryptWrappedKeyForBroker: () => "synthetic-key",
+    createKeyVersion: () => revisions.shift(),
+    getTeamAiSecretsRecord: async () => ({ schemaVersion: 1, providers: {
+      openai: { keyVersion: 7, brokerWrappedKey: { algorithm: TEAM_AI_WRAPPED_KEY_ALGORITHM, ciphertext: "old" } },
+    } }),
+    putTeamAiSecretsRecord: async ({ record }) => record,
+  });
+  try {
+    const result = await saveTeamAiProviderSecretForInstallation({
+      installationId: 42, orgLogin: "team-one", providerId: "openai",
+      wrappedKey: { algorithm: TEAM_AI_WRAPPED_KEY_ALGORITHM, ciphertext: "new" },
+      brokerSession: { user: { login: "owner" } },
+    });
+    assert.equal(result.providers.openai.keyVersion, Number.MAX_SAFE_INTEGER);
+    assert.deepEqual(revisions, []);
+  } finally {
+    restore();
+  }
 });
 
 test("issueTeamAiProviderSecretForInstallation permission checks allow active members and reject non-members", async (t) => {
