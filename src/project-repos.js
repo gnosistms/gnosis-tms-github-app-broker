@@ -242,9 +242,10 @@ export async function createGnosisProjectRepo({
   projectId,
   brokerSession,
 }) {
-  const installationToken = await createInstallationAccessToken(installationId);
   await ensureInstallationAccess({ installationId, brokerSession, requireProjectAdmin: true });
-  await ensureGnosisRepoPropertiesSchema({ installationId, orgLogin, brokerSession });
+  const installationToken = await createInstallationAccessToken(installationId);
+  // Resource creation uses the internal helper; explicit schema setup remains Owner-only.
+  await ensureRepositoryPropertiesSchema(orgLogin, installationToken);
 
   const repositoryResponse = await githubApi(`/orgs/${orgLogin}/repos`, {
     method: "POST",
