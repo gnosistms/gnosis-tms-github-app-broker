@@ -3,6 +3,11 @@ import crypto from "node:crypto";
 import { config } from "./config.js";
 
 const SESSION_TTL_MS = 1000 * 60 * 60 * 24 * config.brokerSessionTtlDays;
+// The broker session outlives the GitHub user token inside it (GitHub expires
+// those after ~8 hours). Treat the session as expired slightly before the token
+// does, so a request that starts just before expiry doesn't reach GitHub with a
+// dead token.
+const ACCESS_TOKEN_EXPIRY_MARGIN_MS = 2 * 60 * 1000;
 const SESSION_ALGORITHM = "aes-256-gcm";
 const IV_BYTES = 12;
 const KEY_BYTES = 32;
@@ -82,6 +87,19 @@ export function getBrokerSession(token) {
   }
 
   if (!Number.isFinite(session.expiresAt) || session.expiresAt <= Date.now()) {
+    return null;
+  }
+
+  // Once the GitHub user token has expired, every GitHub call made with it fails
+  // with "Bad credentials", and routes report that as a generic 400 the desktop
+  // app can't recognise as a login problem. Rejecting the session here makes
+  // ensureBrokerSession answer 401, which the app handles by refreshing the
+  // session through /api/auth/refresh and retrying. Sessions without a recorded
+  // expiry (non-expiring user tokens) are unaffected.
+  if (
+    Number.isFinite(session.accessTokenExpiresAt)
+    && session.accessTokenExpiresAt - ACCESS_TOKEN_EXPIRY_MARGIN_MS <= Date.now()
+  ) {
     return null;
   }
 

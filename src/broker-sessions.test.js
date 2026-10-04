@@ -71,3 +71,45 @@ test("getRefreshableBrokerSession rejects sessions with expired GitHub refresh t
 
   assert.equal(getRefreshableBrokerSession(token), null);
 });
+
+test("getBrokerSession rejects a session whose GitHub user token has expired", () => {
+  const token = createBrokerSession(
+    githubSessionPayload({
+      accessTokenExpiresAt: Date.now() - 1000,
+    }),
+  );
+
+  assert.equal(getBrokerSession(token), null);
+  // The refresh route must still accept it, so the app can renew the login.
+  assert.equal(getRefreshableBrokerSession(token)?.user.login, "octocat");
+});
+
+test("getBrokerSession rejects a session whose GitHub user token is about to expire", () => {
+  const token = createBrokerSession(
+    githubSessionPayload({
+      accessTokenExpiresAt: Date.now() + 30 * 1000,
+    }),
+  );
+
+  assert.equal(getBrokerSession(token), null);
+});
+
+test("getBrokerSession accepts a session whose GitHub user token is still valid", () => {
+  const token = createBrokerSession(
+    githubSessionPayload({
+      accessTokenExpiresAt: Date.now() + 60 * 60 * 1000,
+    }),
+  );
+
+  assert.equal(getBrokerSession(token)?.user.login, "octocat");
+});
+
+test("getBrokerSession accepts a session without a recorded GitHub token expiry", () => {
+  const token = createBrokerSession(
+    githubSessionPayload({
+      accessTokenExpiresAt: null,
+    }),
+  );
+
+  assert.equal(getBrokerSession(token)?.user.login, "octocat");
+});
